@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stagewise 2api</title>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Roboto:wght@300;400;500&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" rel="stylesheet">
+  <style>
+    :root {
+      --md-primary: #1a73e8;
+      --md-primary-light: #e8f0fe;
+      --md-primary-dark: #1557b0;
+      --md-surface: #ffffff;
+      --md-bg: #f1f3f4;
+      --md-on-surface: #202124;
+      --md-on-surface-variant: #5f6368;
+      --md-outline: #dadce0;
+      --md-error: #d93025;
+      --md-error-light: #fce8e6;
+      --md-success: #1e8e3e;
+      --md-success-light: #e6f4ea;
+      --md-warning: #e37400;
+      --md-warning-light: #fef7e0;
+      --md-shadow-1: 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15);
+      --md-shadow-2: 0 1px 2px 0 rgba(60,64,67,.3), 0 2px 6px 2px rgba(60,64,67,.15);
+      --md-shadow-3: 0 4px 8px 3px rgba(60,64,67,.15), 0 1px 3px rgba(60,64,67,.3);
+      --md-radius: 12px;
+      --md-radius-sm: 8px;
+      --md-radius-lg: 16px;
+      --md-radius-xl: 28px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Google Sans', 'Roboto', -apple-system, sans-serif;
+      background: var(--md-bg);
+      color: var(--md-on-surface);
+      min-height: 100vh;
+    }
+
+    /* ─── Top App Bar ─────────────────────────────────────── */
+    .top-bar {
+      background: var(--md-surface);
+      border-bottom: 1px solid var(--md-outline);
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .top-bar .logo {
+      width: 32px; height: 32px;
+      background: var(--md-primary);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 18px;
+    }
+    .top-bar h1 {
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--md-on-surface);
+    }
+    .top-bar .version {
+      font-size: 12px;
+      color: var(--md-on-surface-variant);
+      background: var(--md-bg);
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-weight: 500;
+    }
+
+    /* ─── Navigation Tabs ─────────────────────────────────── */
+    .nav-bar {
+      background: var(--md-surface);
+      border-bottom: 1px solid var(--md-outline);
+      display: flex;
+      padding: 0 16px;
+      position: sticky;
+      top: 64px;
+      z-index: 99;
+    }
+    .nav-tab {
+      padding: 14px 24px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--md-on-surface-variant);
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .nav-tab:hover { color: var(--md-primary); background: var(--md-primary-light); }
+    .nav-tab.active {
+      color: var(--md-primary);
+      border-bottom-color: var(--md-primary);
+    }
+    .nav-tab .material-symbols-rounded { font-size: 20px; }
+
+    /* ─── Main Content ────────────────────────────────────── */
+    .main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ─── Stat Cards Row ──────────────────────────────────── */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--md-surface);
+      border-radius: var(--md-radius);
+      padding: 20px;
+      box-shadow: var(--md-shadow-1);
+      transition: box-shadow 0.2s;
+    }
+    .stat-card:hover { box-shadow: var(--md-shadow-2); }
+    .stat-card .stat-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--md-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .stat-card .stat-value {
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--md-on-surface);
+      line-height: 1;
+    }
+    .stat-card .stat-sub {
+      font-size: 13px;
+      color: var(--md-on-surface-variant);
+      margin-top: 4px;
+    }
+
+    /* ─── Cards ───────────────────────────────────────────── */
+    .card {
+      background: var(--md-surface);
+      border-radius: var(--md-radius);
+      padding: 24px;
+      box-shadow: var(--md-shadow-1);
+      margin-bottom: 16px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--md-on-surface);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .material-symbols-rounded {
+      font-size: 22px;
+      color: var(--md-primary);
+    }
+
+    /* ─── Buttons ─────────────────────────────────────────── */
+    .btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: var(--md-radius-xl);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn .material-symbols-rounded { font-size: 18px; }
+    .btn-filled {
+      background: var(--md-primary);
+      color: white;
+    }
+    .btn-filled:hover { background: var(--md-primary-dark); box-shadow: var(--md-shadow-1); }
+    .btn-filled:disabled { background: #ccc; cursor: not-allowed; }
+    .btn-tonal {
+      background: var(--md-primary-light);
+      color: var(--md-primary);
+    }
+    .btn-tonal:hover { background: #d2e3fc; }
+    .btn-danger-filled { background: var(--md-error); color: white; }
+    .btn-danger-filled:hover { background: #b3261e; }
+    .btn-danger-tonal { background: var(--md-error-light); color: var(--md-error); }
+    .btn-danger-tonal:hover { background: #f5c6c2; }
+    .btn-sm { padding: 6px 16px; font-size: 13px; }
+
+    /* ─── Form ────────────────────────────────────────────── */
+    .form-field {
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .form-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--md-on-surface-variant);
+      margin-bottom: 6px;
+      letter-spacing: 0.3px;
+    }
+    .form-field input, .form-field select, .form-field textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid var(--md-outline);
+      border-radius: var(--md-radius-sm);
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--md-on-surface);
+      background: var(--md-surface);
+      transition: border-color 0.2s;
+    }
+    .form-field input:focus, .form-field select:focus, .form-field textarea:focus {
+      outline: none;
+      border-color: var(--md-primary);
+      box-shadow: 0 0 0 1px var(--md-primary);
+    }
+    .form-row { display: flex; gap: 16px; }
+    .form-row .form-field { flex: 1; }
+
+    /* ─── Table ───────────────────────────────────────────── */
+    .data-table { width: 100%; border-collapse: collapse; }
+    .data-table th {
+      text-align: left;
+      padding: 12px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--md-on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--md-outline);
+      background: var(--md-bg);
+    }
+    .data-table td {
+      padding: 14px 16px;
+      font-size: 14px;
+      border-bottom: 1px solid var(--md-outline);
+      vertical-align: middle;
+    }
+    .data-table tr:hover td { background: #f8f9fa; }
+    .data-table .mono {
+      font-family: 'Roboto Mono', monospace;
+      font-size: 12px;
+      color: var(--md-on-surface-variant);
+    }
+    .data-table .actions { display: flex; gap: 8px; }
+
+    /* ─── Badges ──────────────────────────────────────────── */
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .chip-success { background: var(--md-success-light); color: var(--md-success); }
+    .chip-error { background: var(--md-error-light); color: var(--md-error); }
+    .chip-warning { background: var(--md-warning-light); color: var(--md-warning); }
+    .chip-info { background: var(--md-primary-light); color: var(--md-primary); }
+
+    /* ─── Usage Card ──────────────────────────────────────── */
+    .usage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+    }
+    .usage-card {
+      background: var(--md-surface);
+      border: 1px solid var(--md-outline);
+      border-radius: var(--md-radius);
+      padding: 20px;
+      transition: box-shadow 0.2s;
+    }
+    .usage-card:hover { box-shadow: var(--md-shadow-2); }
+    .usage-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .usage-card-email {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--md-on-surface);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .usage-card-email .material-symbols-rounded { font-size: 18px; color: var(--md-primary); }
+    .usage-card-name {
+      font-size: 12px;
+      color: var(--md-on-surface-variant);
+    }
+    .usage-bar-group { margin-bottom: 12px; }
+    .usage-bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      margin-bottom: 6px;
+      color: var(--md-on-surface-variant);
+    }
+    .usage-bar-label span:last-child { font-weight: 600; color: var(--md-on-surface); }
+    .usage-bar-track {
+      height: 8px;
+      background: var(--md-bg);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .usage-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .bar-green { background: var(--md-success); }
+    .bar-yellow { background: var(--md-warning); }
+    .bar-red { background: var(--md-error); }
+    .usage-card-footer {
+      font-size: 11px;
+      color: var(--md-on-surface-variant);
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .usage-card-footer .material-symbols-rounded { font-size: 14px; }
+
+    /* ─── Register Progress ───────────────────────────────── */
+    .register-log {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 12px;
+      background: #1e1e2e;
+      border-radius: var(--md-radius-sm);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      color: #cdd6f4;
+      line-height: 1.6;
+    }
+    .register-log .log-step { color: #89b4fa; }
+    .register-log .log-success { color: #a6e3a1; }
+    .register-log .log-error { color: #f38ba8; }
+    .register-log .log-time { color: #6c7086; font-size: 11px; }
+
+    /* ─── Summary Bar ─────────────────────────────────────── */
+    .summary-bar {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      padding: 16px 20px;
+      background: var(--md-primary-light);
+      border-radius: var(--md-radius-sm);
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .summary-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .summary-item .material-symbols-rounded { font-size: 20px; color: var(--md-primary); }
+    .summary-item .label { font-size: 12px; color: var(--md-on-surface-variant); }
+    .summary-item .value { font-size: 16px; font-weight: 600; color: var(--md-primary); }
+
+    /* ─── Alerts / Snackbar ───────────────────────────────── */
+    .snackbar {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #323232;
+      color: white;
+      padding: 14px 24px;
+      border-radius: var(--md-radius-sm);
+      font-size: 14px;
+      box-shadow: var(--md-shadow-3);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .snackbar.show { transform: translateX(-50%) translateY(0); }
+    .snackbar.error { background: var(--md-error); }
+    .snackbar.success { background: var(--md-success); }
+
+    /* ─── Loading Spinner ─────────────────────────────────── */
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid var(--md-outline);
+      border-top-color: var(--md-primary);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 40px;
+      color: var(--md-on-surface-variant);
+      font-size: 14px;
+    }
+
+    /* ─── Empty State ─────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--md-on-surface-variant);
+    }
+    .empty-state .material-symbols-rounded {
+      font-size: 64px;
+      color: var(--md-outline);
+      margin-bottom: 16px;
+    }
+    .empty-state h3 { font-size: 18px; font-weight: 500; margin-bottom: 8px; color: var(--md-on-surface); }
+    .empty-state p { font-size: 14px; }
+
+    /* ─── API Test ────────────────────────────────────────── */
+    .api-result {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 16px;
+      border-radius: var(--md-radius-sm);
+      font-family: 'Roboto Mono', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .api-meta {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .api-meta-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    /* ─── Responsive ──────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .main { padding: 16px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .usage-grid { grid-template-columns: 1fr; }
+      .form-row { flex-direction: column; gap: 0; }
+      .nav-tab { padding: 12px 16px; font-size: 13px; }
+      .nav-tab span.tab-text { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Top App Bar -->
+  <div class="top-bar">
+    <div class="logo">
+      <span class="material-symbols-rounded" style="font-size: 20px;">hub</span>
+    </div>
+    <h1>Stagewise 2api</h1>
+    <span class="version">v2.0</span>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="nav-bar">
+    <button class="nav-tab active" onclick="switchTab('overview', this)">
+      <span class="material-symbols-rounded">dashboard</span>
+      <span class="tab-text">概览</span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('accounts', this)">
+      <span class="material-symbols-rounded">group</span>
+      <span class="tab-text">账号池</span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('usage', this)">
+      <span class="material-symbols-rounded">monitoring</span>
+      <span class="tab-text">额度查询</span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('register', this)">
+      <span class="material-symbols-rounded">person_add</span>
+      <span class="tab-text">自动注册</span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('api-test', this)">
+      <span class="material-symbols-rounded">science</span>
+      <span class="tab-text">API 测试</span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('settings', this)">
+      <span class="material-symbols-rounded">settings</span>
+      <span class="tab-text">设置</span>
+    </button>
+  </div>
+
+  <div class="main">
+    <!-- ═══ Tab: 概览 ═══ -->
+    <div class="tab-content active" id="tab-overview">
+      <div class="stats-row" id="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">账号总数</div>
+          <div class="stat-value" id="stat-total">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">活跃账号</div>
+          <div class="stat-value" id="stat-active">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总请求数</div>
+          <div class="stat-value" id="stat-requests">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总错误数</div>
+          <div class="stat-value" id="stat-errors">—</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">info</span>
+            端点信息
+          </div>
+        </div>
+        <div class="stats-row" style="margin-bottom:0">
+          <div>
+            <div style="font-size:12px;color:var(--md-on-surface-variant);margin-bottom:4px;">聊天补全</div>
+            <div class="mono" style="font-size:13px;">POST /v1/chat/completions</div>
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--md-on-surface-variant);margin-bottom:4px;">模型列表</div>
+            <div class="mono" style="font-size:13px;">GET /v1/models</div>
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--md-on-surface-variant);margin-bottom:4px;">账号池</div>
+            <div class="mono" style="font-size:13px;">GET/POST /v1/pool</div>
+          </div>
+          <div>
+            <div style="font-size:12px;color:var(--md-on-surface-variant);margin-bottom:4px;">额度查询</div>
+            <div class="mono" style="font-size:13px;">GET /v1/usage/pool</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Tab: 账号池 ═══ -->
+    <div class="tab-content" id="tab-accounts">
+      <!-- 添加账号 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">person_add</span>
+            添加账号
+          </div>
+        </div>
+
+        <!-- Step 1: 输入邮箱 -->
+        <div id="add-step1">
+          <div class="form-field">
+            <label>Stagewise 注册邮箱</label>
+            <input type="email" id="add-email" placeholder="user@example.com">
+          </div>
+          <div class="form-field">
+            <label>备注名称（可选）</label>
+            <input type="text" id="add-name" placeholder="例：主账号">
+          </div>
+          <button class="btn btn-filled" onclick="addStep1SendOtp()" id="btn-send-otp">
+            <span class="material-symbols-rounded">mail</span>
+            发送验证码
+          </button>
+        </div>
+
+        <!-- Step 2: 输入验证码 -->
+        <div id="add-step2" style="display:none;">
+          <div class="alert alert-success" id="otp-sent-msg"></div>
+          <div class="form-field">
+            <label>验证码（6 位数字）</label>
+            <input type="text" id="add-otp" placeholder="输入邮箱收到的验证码" maxlength="6"
+              style="font-size:1.5em;letter-spacing:8px;text-align:center;font-weight:600;">
+          </div>
+          <div style="display:flex;gap:12px;">
+            <button class="btn btn-filled" onclick="addStep2Verify()" id="btn-verify">
+              <span class="material-symbols-rounded">check_circle</span>
+              验证并添加
+            </button>
+            <button class="btn btn-tonal" onclick="addReset()">
+              <span class="material-symbols-rounded">arrow_back</span>
+              返回
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3: 成功 -->
+        <div id="add-step3" style="display:none;">
+          <div class="alert alert-success" id="verify-success-msg"></div>
+          <button class="btn btn-tonal" onclick="addReset()">
+            <span class="material-symbols-rounded">add</span>
+            继续添加
+          </button>
+        </div>
+      </div>
+
+      <!-- 账号列表 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">group</span>
+            账号列表
+          </div>
+          <button class="btn btn-tonal btn-sm" onclick="loadAccounts()">
+            <span class="material-symbols-rounded">refresh</span>
+            刷新
+          </button>
+        </div>
+        <div id="accounts-list">
+          <div class="loading-container"><div class="spinner"></div>加载中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Tab: 额度查询 ═══ -->
+    <div class="tab-content" id="tab-usage">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">monitoring</span>
+            账号池额度
+          </div>
+          <button class="btn btn-filled btn-sm" onclick="loadUsage(true)" id="btn-refresh-usage">
+            <span class="material-symbols-rounded">refresh</span>
+            强制刷新
+          </button>
+        </div>
+        <div id="usage-summary"></div>
+        <div id="usage-list">
+          <div class="loading-container"><div class="spinner"></div>加载中...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Tab: 自动注册 ═══ -->
+    <div class="tab-content" id="tab-register">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">rocket_launch</span>
+            自动注册
+          </div>
+        </div>
+        <p style="font-size:14px;color:var(--md-on-surface-variant);margin-bottom:16px;">
+          自动创建临时邮箱 → 发送验证码 → 收取验证码 → 完成注册 → 加入账号池，全流程无需人工干预。
+        </p>
+        <div class="form-field">
+          <label>注册数量</label>
+          <select id="reg-count" onchange="toggleCustomCount()">
+            <option value="100">100 个</option>
+            <option value="200">200 个</option>
+            <option value="300">300 个</option>
+            <option value="500">500 个</option>
+            <option value="1000">1000 个</option>
+            <option value="custom">自定义...</option>
+          </select>
+        </div>
+        <div class="form-field" id="custom-count-wrapper" style="display:none;">
+          <label>自定义数量 (1-10000)</label>
+          <input type="number" id="custom-count" min="1" max="10000" placeholder="输入数量">
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:16px;">
+          <button class="btn btn-filled" onclick="startRegister()" id="btn-register">
+            <span class="material-symbols-rounded">play_arrow</span>
+            开始注册
+          </button>
+        </div>
+        <div class="register-log" id="register-log">
+          <span style="color:#6c7086;">等待注册...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Tab: API 测试 ═══ -->
+    <div class="tab-content" id="tab-api-test">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">science</span>
+            Chat Completions 测试
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>模型</label>
+            <select id="test-model">
+              <option value="">加载中...</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>消息</label>
+            <input type="text" id="test-message" value="你好，用一句话介绍自己">
+          </div>
+        </div>
+        <button class="btn btn-filled" onclick="testApi()" id="btn-test">
+          <span class="material-symbols-rounded">send</span>
+          发送请求
+        </button>
+        <div id="api-result" style="margin-top:16px;"></div>
+      </div>
+    </div>
+
+    <!-- ═══ Tab: 设置 ═══ -->
+    <div class="tab-content" id="tab-settings">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">mail</span>
+            GPTMail API 配置
+          </div>
+        </div>
+        <p style="font-size:14px;color:var(--md-on-surface-variant);margin-bottom:16px;">
+          配置用于自动注册的 GPTMail 临时邮箱服务
+          (<a href="https://mail.chatgpt.org.uk/zh/api" target="_blank" style="color:var(--md-primary);">API 文档</a>)
+        </p>
+        <form id="mail-form">
+          <div class="form-field">
+            <label>API 地址</label>
+            <input type="url" id="mail-url" placeholder="https://mail.chatgpt.org.uk" required>
+          </div>
+          <div class="form-field">
+            <label>API Key</label>
+            <input type="text" id="mail-token" placeholder="输入 API Key (sk-...)" required>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <button type="submit" class="btn btn-filled">
+              <span class="material-symbols-rounded">save</span>
+              保存配置
+            </button>
+            <button type="button" class="btn btn-tonal" onclick="loadMailConfig()">
+              <span class="material-symbols-rounded">refresh</span>
+              重新加载
+            </button>
+            <button type="button" class="btn btn-tonal" onclick="testMailConnection()">
+              <span class="material-symbols-rounded">wifi_tethering</span>
+              测试连接
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Snackbar -->
+  <div class="snackbar" id="snackbar"></div>
+
+  <script>
+    /* ─── Utility ───────────────────────────────────────── */
+    function esc(s) {
+      if (s == null) return '';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function showSnackbar(msg, type = '') {
+      const el = document.getElementById('snackbar');
+      el.textContent = msg;
+      el.className = 'snackbar show ' + type;
+      setTimeout(() => el.className = 'snackbar', 3000);
+    }
+
+    function barColor(pct) {
+      if (pct > 80) return 'bar-red';
+      if (pct > 60) return 'bar-yellow';
+      return 'bar-green';
+    }
+
+    function formatResetTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      const now = new Date();
+      const diff = d - now;
+      if (diff <= 0) return '已重置';
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      if (h >= 24) return Math.floor(h / 24) + '天' + (h % 24) + '小时';
+      return h + '小时' + m + '分钟';
+    }
+
+    /* ─── Tab Switch ────────────────────────────────────── */
+    function switchTab(name, btn) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    /* ─── Stats ─────────────────────────────────────────── */
+    async function loadStats() {
+      try {
+        const res = await fetch('/v1/pool/stats');
+        const d = await res.json();
+        document.getElementById('stat-total').textContent = d.total || 0;
+        document.getElementById('stat-active').textContent = d.active || 0;
+        document.getElementById('stat-requests').textContent = d.total_requests || 0;
+        document.getElementById('stat-errors').textContent = d.total_errors || 0;
+      } catch (e) { console.error(e); }
+    }
+
+    /* ─── Accounts ──────────────────────────────────────── */
+    async function loadAccounts() {
+      try {
+        const res = await fetch('/v1/pool');
+        const data = await res.json();
+
+        if (!data.accounts || data.accounts.length === 0) {
+          document.getElementById('accounts-list').innerHTML = `
+            <div class="empty-state">
+              <span class="material-symbols-rounded">person_off</span>
+              <h3>暂无账号</h3>
+              <p>点击上方添加或使用自动注册</p>
+            </div>`;
+          return;
+        }
+
+        let html = '<table class="data-table"><thead><tr>';
+        html += '<th>邮箱</th><th>备注</th><th>状态</th><th>请求</th><th>错误</th><th>Token</th><th>操作</th>';
+        html += '</tr></thead><tbody>';
+
+        data.accounts.forEach(acc => {
+          const chip = acc.is_active
+            ? '<span class="chip chip-success">活跃</span>'
+            : '<span class="chip chip-error">禁用</span>';
+
+          html += `<tr>
+            <td style="font-weight:500">${esc(acc.email)}</td>
+            <td>${esc(acc.name) || '—'}</td>
+            <td>${chip}</td>
+            <td>${acc.request_count || 0}</td>
+            <td>${acc.error_count || 0}</td>
+            <td class="mono">${esc(acc.token_preview)}</td>
+            <td class="actions">
+              <button class="btn btn-sm ${acc.is_active ? 'btn-danger-tonal' : 'btn-tonal'}"
+                onclick="toggleAccount('${esc(acc.email)}', ${!acc.is_active})">
+                <span class="material-symbols-rounded">${acc.is_active ? 'block' : 'check_circle'}</span>
+                ${acc.is_active ? '禁用' : '启用'}
+              </button>
+              <button class="btn btn-sm btn-danger-tonal" onclick="deleteAccount('${esc(acc.email)}')">
+                <span class="material-symbols-rounded">delete</span>
+              </button>
+            </td>
+          </tr>`;
+        });
+
+        html += '</tbody></table>';
+        document.getElementById('accounts-list').innerHTML = html;
+      } catch (err) {
+        document.getElementById('accounts-list').innerHTML =
+          `<div class="empty-state"><span class="material-symbols-rounded">error</span><h3>加载失败</h3><p>${esc(err.message)}</p></div>`;
+      }
+    }
+
+    /* ─── Add Account (3-step flow) ──────────────────────── */
+    async function addStep1SendOtp() {
+      const email = document.getElementById('add-email').value.trim();
+      if (!email) {
+        showSnackbar('请输入邮箱地址', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('btn-send-otp');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 发送中...';
+
+      try {
+        const res = await fetch('/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          document.getElementById('add-step1').style.display = 'none';
+          document.getElementById('add-step2').style.display = 'block';
+          document.getElementById('otp-sent-msg').textContent = `✅ 验证码已发送到 ${email}，请查收邮箱`;
+          document.getElementById('add-otp').focus();
+          showSnackbar('验证码已发送', 'success');
+        } else {
+          throw new Error(data.error || '发送失败');
+        }
+      } catch (err) {
+        showSnackbar('发送失败: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded">mail</span> 发送验证码';
+      }
+    }
+
+    async function addStep2Verify() {
+      const email = document.getElementById('add-email').value.trim();
+      const code = document.getElementById('add-otp').value.trim();
+      const name = document.getElementById('add-name').value.trim();
+
+      if (!code || code.length !== 6) {
+        showSnackbar('请输入 6 位验证码', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('btn-verify');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 验证中...';
+
+      try {
+        // Step 1: 验证 OTP 获取 token
+        const verifyRes = await fetch('/v1/auth/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, code })
+        });
+        const verifyData = await verifyRes.json();
+
+        if (!verifyData.success || !verifyData.token) {
+          throw new Error(verifyData.error || '验证失败');
+        }
+
+        // Step 2: 添加到账号池
+        const addRes = await fetch('/v1/pool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, token: verifyData.token, name })
+        });
+        const addData = await addRes.json();
+
+        if (!addData.success) {
+          throw new Error(addData.error || '添加失败');
+        }
+
+        // 成功
+        document.getElementById('add-step2').style.display = 'none';
+        document.getElementById('add-step3').style.display = 'block';
+        document.getElementById('verify-success-msg').textContent = `✅ 账号 ${email} 已成功添加到账号池`;
+        showSnackbar('添加成功！', 'success');
+        loadStats();
+        loadAccounts();
+      } catch (err) {
+        showSnackbar('验证失败: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded">check_circle</span> 验证并添加';
+      }
+    }
+
+    function addReset() {
+      document.getElementById('add-step1').style.display = 'block';
+      document.getElementById('add-step2').style.display = 'none';
+      document.getElementById('add-step3').style.display = 'none';
+      document.getElementById('add-email').value = '';
+      document.getElementById('add-name').value = '';
+      document.getElementById('add-otp').value = '';
+    }
+
+    /* ─── Bulk Import ───────────────────────────────────── */
+    async function bulkImport() {
+      const text = document.getElementById('bulk-import-text').value.trim();
+      if (!text) {
+        showSnackbar('请输入要导入的账号数据', 'error');
+        return;
+      }
+
+      const lines = text.split('\n').filter(l => l.trim());
+      let success = 0, failed = 0;
+
+      for (const line of lines) {
+        const parts = line.trim().split(':');
+        if (parts.length < 2) {
+          failed++;
+          continue;
+        }
+
+        const email = parts[0].trim();
+        const token = parts[1].trim();
+        const name = parts[2] ? parts[2].trim() : '';
+
+        try {
+          const res = await fetch('/v1/pool', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, token, name })
+          });
+          const data = await res.json();
+          if (data.success) success++;
+          else failed++;
+        } catch (e) {
+          failed++;
+        }
+      }
+
+      showSnackbar(`导入完成: ${success} 成功, ${failed} 失败`, success > 0 ? 'success' : 'error');
+      document.getElementById('bulk-import-text').value = '';
+      loadStats();
+      loadAccounts();
+    }
+
+    async function toggleAccount(email, isActive) {
+      try {
+        await fetch(`/v1/pool/${encodeURIComponent(email)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isActive })
+        });
+        showSnackbar(isActive ? '已启用' : '已禁用', 'success');
+        loadStats();
+        loadAccounts();
+      } catch (err) { showSnackbar('操作失败', 'error'); }
+    }
+
+    async function deleteAccount(email) {
+      if (!confirm(`确定删除 ${email}？`)) return;
+      try {
+        await fetch(`/v1/pool/${encodeURIComponent(email)}`, { method: 'DELETE' });
+        showSnackbar('已删除', 'success');
+        loadStats();
+        loadAccounts();
+      } catch (err) { showSnackbar('删除失败', 'error'); }
+    }
+
+    /* ─── Usage ─────────────────────────────────────────── */
+    async function loadUsage(forceRefresh = false) {
+      const btn = document.getElementById('btn-refresh-usage');
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 加载中...';
+
+      document.getElementById('usage-list').innerHTML =
+        '<div class="loading-container"><div class="spinner"></div>正在查询额度...</div>';
+
+      try {
+        const url = forceRefresh ? '/v1/usage/pool?refresh=true' : '/v1/usage/pool';
+        const res = await fetch(url);
+        const data = await res.json();
+
+        // Summary bar
+        if (data.summary) {
+          const s = data.summary;
+          document.getElementById('usage-summary').innerHTML = `
+            <div class="summary-bar">
+              <div class="summary-item">
+                <span class="material-symbols-rounded">group</span>
+                <div><div class="label">账号数</div><div class="value">${s.totalAccounts}</div></div>
+              </div>
+              <div class="summary-item">
+                <span class="material-symbols-rounded">calendar_today</span>
+                <div><div class="label">日均使用</div><div class="value">${s.avgDailyUsed}</div></div>
+              </div>
+              <div class="summary-item">
+                <span class="material-symbols-rounded">date_range</span>
+                <div><div class="label">周均使用</div><div class="value">${s.avgWeeklyUsed}</div></div>
+              </div>
+              <div class="summary-item">
+                <span class="material-symbols-rounded">event</span>
+                <div><div class="label">月均使用</div><div class="value">${s.avgMonthlyUsed}</div></div>
+              </div>
+              <div class="summary-item">
+                <span class="material-symbols-rounded">cached</span>
+                <div><div class="label">来源</div><div class="value">${s.cached ? '缓存' : '实时'}</div></div>
+              </div>
+            </div>`;
+        }
+
+        // Account cards
+        if (!data.accounts || data.accounts.length === 0) {
+          document.getElementById('usage-list').innerHTML = `
+            <div class="empty-state">
+              <span class="material-symbols-rounded">monitoring</span>
+              <h3>暂无数据</h3>
+              <p>请先添加账号</p>
+            </div>`;
+          return;
+        }
+
+        let html = '<div class="usage-grid">';
+        data.accounts.forEach(acc => {
+          html += '<div class="usage-card">';
+          html += `<div class="usage-card-header">
+            <div>
+              <div class="usage-card-email">
+                <span class="material-symbols-rounded">account_circle</span>
+                ${esc(acc.email)}
+                ${acc.cached ? '<span class="chip chip-info" style="font-size:10px;padding:2px 6px;">缓存</span>' : ''}
+              </div>
+              <div class="usage-card-name">${esc(acc.name) || ''}</div>
+            </div>
+            ${acc.success
+              ? '<span class="chip chip-success">在线</span>'
+              : '<span class="chip chip-error">失败</span>'}
+          </div>`;
+
+          if (acc.success && acc.raw && acc.raw.windows) {
+            for (const w of acc.raw.windows) {
+              const pct = ((w.usedPercent || 0) * 100).toFixed(1);
+              const remaining = (100 - pct).toFixed(1);
+              html += `
+                <div class="usage-bar-group">
+                  <div class="usage-bar-label">
+                    <span>${w.type === 'daily' ? '📅 日配额' : w.type === 'weekly' ? '📆 周配额' : '🗓️ 月配额'}</span>
+                    <span>${pct}% 已用</span>
+                  </div>
+                  <div class="usage-bar-track">
+                    <div class="usage-bar-fill ${barColor(parseFloat(pct))}" style="width:${pct}%"></div>
+                  </div>
+                  <div style="font-size:11px;color:var(--md-on-surface-variant);margin-top:2px;">
+                    剩余 ${remaining}% · ${formatResetTime(w.resetsAt)}后重置
+                  </div>
+                </div>`;
+            }
+            if (acc.raw.plan) {
+              html += `<div class="usage-card-footer">
+                <span class="material-symbols-rounded">workspace_premium</span>
+                计划: ${acc.raw.plan.toUpperCase()}
+              </div>`;
+            }
+          } else {
+            html += `<div style="color:var(--md-error);font-size:13px;padding:12px 0;">${esc(acc.error || '未知错误')}</div>`;
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+        document.getElementById('usage-list').innerHTML = html;
+      } catch (err) {
+        document.getElementById('usage-list').innerHTML =
+          `<div class="empty-state"><span class="material-symbols-rounded">error</span><h3>加载失败</h3><p>${esc(err.message)}</p></div>`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded">refresh</span> 强制刷新';
+      }
+    }
+
+    /* ─── Auto Register ─────────────────────────────────── */
+    async function loadDomains() {
+      try {
+        const res = await fetch('/v1/register/domains');
+        const data = await res.json();
+        const domains = data.domains || [];
+        const provider = data.provider || 'gptmail';
+
+        // GPTMail doesn't use domainIndex, just show available domains
+        console.log('Available domains:', domains, 'Provider:', provider);
+      } catch (e) { console.error(e); }
+    }
+
+    function toggleCustomCount() {
+      const select = document.getElementById('reg-count');
+      const wrapper = document.getElementById('custom-count-wrapper');
+      if (select.value === 'custom') {
+        wrapper.style.display = 'block';
+      } else {
+        wrapper.style.display = 'none';
+      }
+    }
+
+    async function startRegister() {
+      const btn = document.getElementById('btn-register');
+      const countSelect = document.getElementById('reg-count');
+      const customCount = document.getElementById('custom-count');
+      let count = countSelect.value === 'custom' ? parseInt(customCount.value) : parseInt(countSelect.value);
+
+      if (!count || count < 1) {
+        showSnackbar('请输入有效的注册数量', 'error');
+        return;
+      }
+      if (count > 10000) {
+        showSnackbar('注册数量不能超过 10000', 'error');
+        return;
+      }
+
+      const logEl = document.getElementById('register-log');
+
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 注册中...';
+      logEl.innerHTML = '';
+
+      const appendLog = (msg, cls = '') => {
+        const time = new Date().toLocaleTimeString('zh-CN');
+        logEl.innerHTML += `<div><span class="log-time">[${time}]</span> <span class="${cls}">${msg}</span></div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+      };
+
+      try {
+        if (count === 1) {
+          appendLog('🚀 开始注册...', 'log-step');
+          const res = await fetch('/v1/register/auto', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          const data = await res.json();
+          if (data.logs) {
+            data.logs.forEach(l => appendLog(l.message, l.step === 'done' ? 'log-success' : 'log-step'));
+          }
+          if (data.success) {
+            appendLog(`✅ 注册成功: ${data.email}`, 'log-success');
+            showSnackbar('注册成功！', 'success');
+          } else {
+            appendLog(`❌ 失败: ${data.error}`, 'log-error');
+            showSnackbar('注册失败', 'error');
+          }
+        } else {
+          appendLog(`🚀 批量注册 ${count} 个账号...`, 'log-step');
+          const res = await fetch('/v1/register/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ count })
+          });
+          const data = await res.json();
+          data.results.forEach((r, i) => {
+            if (r.logs) {
+              appendLog(`── 账号 #${i + 1} ──`, 'log-step');
+              r.logs.forEach(l => appendLog(l.message, l.step === 'done' ? 'log-success' : 'log-step'));
+            }
+            if (r.success) {
+              appendLog(`✅ #${i + 1} 成功: ${r.email}`, 'log-success');
+            } else {
+              appendLog(`❌ #${i + 1} 失败: ${r.error}`, 'log-error');
+            }
+          });
+          const s = data.summary;
+          appendLog(`\n📊 完成: ${s.success}/${s.total} 成功, ${s.failed} 失败`, 'log-step');
+          showSnackbar(`注册完成: ${s.success}/${s.total}`, s.success > 0 ? 'success' : 'error');
+        }
+        loadStats();
+        loadAccounts();
+      } catch (err) {
+        appendLog(`❌ 请求失败: ${err.message}`, 'log-error');
+        showSnackbar('请求失败', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded">play_arrow</span> 开始注册';
+      }
+    }
+
+    /* ─── API Test ──────────────────────────────────────── */
+    async function testApi() {
+      const btn = document.getElementById('btn-test');
+      const model = document.getElementById('test-model').value;
+      const message = document.getElementById('test-message').value;
+
+      btn.disabled = true;
+      btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 请求中...';
+      document.getElementById('api-result').innerHTML =
+        '<div class="loading-container"><div class="spinner"></div>等待响应...</div>';
+
+      try {
+        const start = Date.now();
+        const res = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: message }],
+            stream: false,
+          })
+        });
+        const elapsed = Date.now() - start;
+        const data = await res.json();
+
+        let html = '<div class="api-meta">';
+        html += `<div class="api-meta-item"><span class="chip ${res.ok ? 'chip-success' : 'chip-error'}">HTTP ${res.status}</span></div>`;
+        html += `<div class="api-meta-item" style="color:var(--md-on-surface-variant);">⏱ ${elapsed}ms</div>`;
+        if (data.choices?.[0]) {
+          const usage = data.usage;
+          if (usage) {
+            html += `<div class="api-meta-item" style="color:var(--md-on-surface-variant);">📝 ${usage.prompt_tokens || '?'}→${usage.completion_tokens || '?'} tokens</div>`;
+          }
+        }
+        html += '</div>';
+
+        if (data.choices?.[0]?.message?.content) {
+          html += `<div class="api-result">${esc(data.choices[0].message.content)}</div>`;
+        } else {
+          html += `<div class="api-result">${esc(JSON.stringify(data, null, 2))}</div>`;
+        }
+        document.getElementById('api-result').innerHTML = html;
+      } catch (err) {
+        document.getElementById('api-result').innerHTML =
+          `<div class="api-result" style="color:#f38ba8;">${esc(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded">send</span> 发送请求';
+      }
+    }
+
+    /* ─── Models ────────────────────────────────────────── */
+    async function loadModels() {
+      try {
+        const res = await fetch('/v1/models');
+        const data = await res.json();
+        const models = data.data || [];
+
+        const byProvider = {};
+        models.forEach(m => {
+          if (!byProvider[m.owned_by]) byProvider[m.owned_by] = [];
+          byProvider[m.owned_by].push(m);
+        });
+
+        const labels = {
+          anthropic: '🟣 Anthropic', openai: '🟢 OpenAI', google: '🔵 Google',
+          deepseek: '🟠 DeepSeek', moonshotai: '🌙 Kimi', alibaba: '🔶 Qwen',
+          'z-ai': '⚡ GLM', minimax: '🔷 MiniMax',
+        };
+
+        const select = document.getElementById('test-model');
+        select.innerHTML = '';
+        for (const [p, list] of Object.entries(byProvider)) {
+          const og = document.createElement('optgroup');
+          og.label = `${labels[p] || p} (${list.length})`;
+          list.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = m.id;
+            og.appendChild(opt);
+          });
+          select.appendChild(og);
+        }
+        if (select.querySelector('option[value="deepseek-v4-flash"]')) select.value = 'deepseek-v4-flash';
+      } catch (e) {
+        document.getElementById('test-model').innerHTML = '<option>加载失败</option>';
+      }
+    }
+
+    /* ─── Settings ──────────────────────────────────────── */
+    async function loadMailConfig() {
+      try {
+        const res = await fetch('/v1/settings/mail');
+        const data = await res.json();
+        document.getElementById('mail-url').value = data.url || '';
+        document.getElementById('mail-token').value = data.token || '';
+        document.getElementById('mail-token').placeholder = data.token ? '已保存 (留空保持不变)' : '输入 API Key';
+      } catch (e) {
+        showSnackbar('加载配置失败: ' + e.message, 'error');
+      }
+    }
+
+    async function saveMailConfig() {
+      const url = document.getElementById('mail-url').value.trim();
+      const token = document.getElementById('mail-token').value.trim();
+
+      if (!url) {
+        showSnackbar('请输入 API 地址', 'error');
+        return;
+      }
+
+      try {
+        const res = await fetch('/v1/settings/mail', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, token })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+          showSnackbar('配置已保存', 'success');
+          loadMailConfig(); // 重新加载以显示脱敏的 token
+        } else {
+          showSnackbar('保存失败: ' + data.error, 'error');
+        }
+      } catch (e) {
+        showSnackbar('保存失败: ' + e.message, 'error');
+      }
+    }
+
+    async function testMailConnection() {
+      try {
+        const res = await fetch('/v1/register/domains');
+        const data = await res.json();
+
+        if (data.domains && data.domains.length > 0) {
+          showSnackbar(`连接成功，可用域名: ${data.domains.join(', ')}`, 'success');
+        } else {
+          showSnackbar('连接成功，但没有可用域名', 'warning');
+        }
+      } catch (e) {
+        showSnackbar('连接失败: ' + e.message, 'error');
+      }
+    }
+
+    // 设置表单提交事件
+    document.addEventListener('DOMContentLoaded', () => {
+      const mailForm = document.getElementById('mail-form');
+      if (mailForm) {
+        mailForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          saveMailConfig();
+        });
+      }
+    });
+
+    /* ─── Init ──────────────────────────────────────────── */
+    loadStats();
+    loadAccounts();
+    loadModels();
+    loadDomains();
+    loadMailConfig();
+    setInterval(loadStats, 30000);
+  </script>
+</body>
+</html>

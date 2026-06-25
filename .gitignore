@@ -1,0 +1,20 @@
+node_modules/
+.env
+
+# Runtime data and local secrets
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs and debug output
+*.log
+npm-debug.log*
+
+# Local/editor/system files
+.DS_Store
+.vscode/
+.idea/
+
+# Backups
+*.backup

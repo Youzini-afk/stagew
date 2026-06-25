@@ -1,0 +1,182 @@
+/**
+ * GPTMail 临时邮箱 API 封装
+ * https://mail.chatgpt.org.uk/zh/api
+ *
+ * 端点：
+ *   GET/POST /api/generate-email  — 创建邮箱
+ *   GET  /api/emails?email=...    — 获取邮件列表
+ *   GET  /api/email/{id}          — 邮件详情
+ *   DELETE /api/email/{id}        — 删除邮件
+ *   DELETE /api/emails/clear?email=... — 清空邮箱
+ *   GET  /api/stats               — 站点统计
+ *
+ * 认证：Header X-API-Key
+ */
+
+import { getMailConfig } from './settings.js';
+
+function getHeaders() {
+  const cfg = getMailConfig();
+  return {
+    'Content-Type': 'application/json',
+    'X-API-Key': cfg.token,
+  };
+}
+
+function getBaseUrl() {
+  const cfg = getMailConfig();
+  return cfg.url;
+}
+
+/**
+ * 生成临时邮箱
+ * GET = 随机生成; POST = 可指定 prefix/domain
+ */
+export async function createMailbox(prefix = null, domain = null) {
+  const base = getBaseUrl();
+  const headers = getHeaders();
+
+  if (prefix || domain) {
+    const body = {};
+    if (prefix) body.prefix = prefix;
+    if (domain) body.domain = domain;
+
+    const res = await fetch(`${base}/api/generate-email`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '创建邮箱失败');
+    return { email: data.data.email, usage: data.usage };
+  }
+
+  const res = await fetch(`${base}/api/generate-email`, {
+    method: 'GET',
+    headers,
+  });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || '创建邮箱失败');
+  return { email: data.data.email, usage: data.usage };
+}
+
+/**
+ * 获取域名列表
+ * GPTMail 没有专门的域名 API，通过生成邮箱后提取域名并缓存
+ */
+let cachedDomains = null;
+
+export async function getDomains() {
+  if (cachedDomains && cachedDomains.length > 0) {
+    return cachedDomains;
+  }
+  try {
+    const mailbox = await createMailbox();
+    const domain = mailbox.email.split('@')[1];
+    cachedDomains = [domain];
+    return cachedDomains;
+  } catch (e) {
+    return [];
+  }
+}
+
+export function clearDomainCache() {
+  cachedDomains = null;
+}
+
+/**
+ * 获取邮件列表
+ */
+export async function getEmails(mailbox, limit = 20) {
+  const base = getBaseUrl();
+  const headers = getHeaders();
+
+  const res = await fetch(
+    `${base}/api/emails?email=${encodeURIComponent(mailbox)}`,
+    { headers }
+  );
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || '获取邮件失败');
+
+  return (data.data.emails || []).slice(0, limit).map(e => ({
+    id: e.id,
+    sender: e.from_address,
+    subject: e.subject,
+    preview: e.content ? e.content.substring(0, 200) : '',
+    verification_code: extractCode(e.subject, e.content),
+    received_at: e.created_at,
+  }));
+}
+
+/**
+ * 获取单封邮件详情
+ */
+export async function getEmailDetail(emailId) {
+  const base = getBaseUrl();
+  const headers = getHeaders();
+  const res = await fetch(`${base}/api/email/${emailId}`, { headers });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.error || '获取邮件详情失败');
+  return data.data;
+}
+
+/**
+ * 轮询等待验证码邮件
+ */
+export async function waitForVerificationCode(mailbox, opts = {}) {
+  const { maxWait = 60000, interval = 3000, senderFilter } = opts;
+  const deadline = Date.now() + maxWait;
+  const seenIds = new Set();
+
+  while (Date.now() < deadline) {
+    try {
+      const emails = await getEmails(mailbox);
+      for (const email of emails) {
+        if (seenIds.has(email.id)) continue;
+        seenIds.add(email.id);
+        if (senderFilter && email.sender &&
+            !email.sender.toLowerCase().includes(senderFilter.toLowerCase())) {
+          continue;
+        }
+        if (email.verification_code) {
+          return { code: email.verification_code, email };
+        }
+      }
+    } catch (e) { /* 继续轮询 */ }
+    await new Promise(r => setTimeout(r, interval));
+  }
+
+  throw new Error(`等待验证码超时 (${maxWait / 1000}s)`);
+}
+
+/**
+ * 删除邮件
+ */
+export async function deleteEmail(emailId) {
+  const base = getBaseUrl();
+  const headers = getHeaders();
+  const res = await fetch(`${base}/api/email/${emailId}`, { method: 'DELETE', headers });
+  return res.json();
+}
+
+/**
+ * 清空邮箱
+ */
+export async function clearMailbox(mailbox) {
+  const base = getBaseUrl();
+  const headers = getHeaders();
+  const res = await fetch(
+    `${base}/api/emails/clear?email=${encodeURIComponent(mailbox)}`,
+    { method: 'DELETE', headers }
+  );
+  return res.json();
+}
+
+/**
+ * 从主题和内容中提取验证码
+ */
+function extractCode(subject, content) {
+  const text = `${subject || ''} ${content || ''}`;
+  const match = text.match(/\b(\d{4,8})\b/);
+  return match ? match[1] : null;
+}
