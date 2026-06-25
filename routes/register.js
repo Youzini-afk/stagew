@@ -4,6 +4,9 @@ import * as mailProvider from '../services/mail-provider.js';
 
 const router = express.Router();
 
+const MAX_LOGS = 1000;
+const MAX_RESULTS = 1000;
+
 let currentRegisterJob = null;
 
 function clampInt(value, defaultValue, min, max) {
@@ -46,14 +49,33 @@ function isActiveJob(job = currentRegisterJob) {
   return job && (job.status === 'running' || job.status === 'stopping');
 }
 
+function appendJobLog(job, step, message, index = null) {
+  if (!job) return;
+  const entry = { time: new Date().toISOString(), step, message };
+  if (index !== null && index !== undefined) entry.index = index;
+  job.logs.push(entry);
+  if (job.logs.length > MAX_LOGS * 2) {
+    job.logs.splice(0, job.logs.length - MAX_LOGS);
+  }
+}
+
 function publicJob(job = currentRegisterJob) {
   if (!job) return null;
+  const logs = job.logs.length > MAX_LOGS ? job.logs.slice(-MAX_LOGS) : job.logs;
+  let results = job.results;
+  if (Array.isArray(results) && results.length > MAX_RESULTS) {
+    results = results.slice(-MAX_RESULTS);
+  }
   return {
     id: job.id,
     type: job.type,
     status: job.status,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt || null,
+    params: job.params || null,
+    progress: job.progress ? { ...job.progress } : null,
+    logs,
+    results: results || [],
     summary: job.summary || null,
   };
 }
@@ -69,6 +91,10 @@ function startRegisterJob(type) {
     startedAt: new Date().toISOString(),
     finishedAt: null,
     summary: null,
+    params: null,
+    progress: null,
+    logs: [],
+    results: [],
   };
   return currentRegisterJob;
 }
@@ -96,7 +122,11 @@ router.post('/auto', async (req, res) => {
 
   const { prefix, addToPool, maxWait } = req.body || {};
   const normalizedMaxWait = clampInt(maxWait, 60000, 10000, 300000);
-  const logs = [];
+  job.params = { prefix: prefix || null, addToPool: addToPool ?? true, maxWait: normalizedMaxWait };
+  job.progress = { total: 1, started: 0, completed: 0, success: 0, failed: 0, cancelled: 0, currentIndex: 0 };
+
+  appendJobLog(job, 'start', '🚀 开始注册', 0);
+  job.progress.started = 1;
 
   try {
     throwIfAborted(job.controller.signal);
@@ -105,22 +135,32 @@ router.post('/auto', async (req, res) => {
       addToPool: addToPool ?? true,
       maxWait: normalizedMaxWait,
       signal: job.controller.signal,
-      onProgress: (step, message) => {
-        logs.push({ step, message, time: new Date().toISOString() });
-      },
+      onProgress: (step, message) => appendJobLog(job, step, message, 0),
     });
 
+    job.results[0] = { index: 0, success: true, email: result.email, provider: result.provider };
+    job.progress.success = 1;
+    job.progress.completed = 1;
+    appendJobLog(job, 'done', `✅ 注册成功: ${result.email}`, 0);
     const summary = { total: 1, success: 1, failed: 0, cancelled: 0, email: result.email };
     finishRegisterJob(job, 'completed', summary);
-    res.json({ ...result, jobId: job.id, logs });
+    res.json({ success: true, email: result.email, token: result.token, provider: result.provider, jobId: job.id, logs: job.logs });
   } catch (err) {
     if (isAbortError(err) || job.controller.signal.aborted) {
-      const summary = { total: 1, success: 0, failed: 1, cancelled: 1 };
+      job.results[0] = { index: 0, success: false, cancelled: true, error: '注册已停止' };
+      job.progress.cancelled = 1;
+      job.progress.completed = 1;
+      appendJobLog(job, 'cancelled', '⏹ 注册已停止', 0);
+      const summary = { total: 1, success: 0, failed: 0, cancelled: 1 };
       finishRegisterJob(job, 'cancelled', summary);
-      return res.json({ success: false, cancelled: true, error: '注册已停止', jobId: job.id, logs });
+      return res.json({ success: false, cancelled: true, error: '注册已停止', jobId: job.id, logs: job.logs });
     }
+    job.results[0] = { index: 0, success: false, error: err.message };
+    job.progress.failed = 1;
+    job.progress.completed = 1;
+    appendJobLog(job, 'error', `❌ 注册失败: ${err.message}`, 0);
     finishRegisterJob(job, 'failed', { total: 1, success: 0, failed: 1, cancelled: 0, error: err.message });
-    res.status(500).json({ success: false, error: err.message, jobId: job.id, logs });
+    res.status(500).json({ success: false, error: err.message, jobId: job.id, logs: job.logs });
   }
 });
 
@@ -144,9 +184,13 @@ router.post('/batch', async (req, res) => {
   const concurrency = clampInt(body.concurrency, 1, 1, 5);
   const delayMs = clampInt(body.delayMs, 3000, 0, 60000);
   const maxWait = clampInt(body.maxWait, 60000, 10000, 300000);
-  const results = new Array(total);
+  job.params = { count: total, concurrency, delayMs, maxWait };
+  job.progress = { total, started: 0, completed: 0, success: 0, failed: 0, cancelled: 0, currentIndex: null };
+  job.results = new Array(total);
   let nextIndex = 0;
   let nextStartAt = Date.now();
+
+  appendJobLog(job, 'start', `🚀 批量注册 ${total} 个账号，并发 ${concurrency}，间隔 ${delayMs}ms`);
 
   async function waitForStartSlot() {
     if (delayMs <= 0) return;
@@ -160,26 +204,41 @@ router.post('/batch', async (req, res) => {
   }
 
   async function runOne(index) {
-    const logs = [];
     try {
       throwIfAborted(job.controller.signal);
+      appendJobLog(job, 'account-queued', `账号 #${index + 1} 等待启动`, index);
       await waitForStartSlot();
+      throwIfAborted(job.controller.signal);
+      job.progress.started++;
+      job.progress.currentIndex = index;
+      appendJobLog(job, 'account-start', `账号 #${index + 1} 开始`, index);
       const result = await autoRegister({
         addToPool: true,
         maxWait,
         signal: job.controller.signal,
-        onProgress: (step, message) => { logs.push({ step, message }); },
+        onProgress: (step, message) => appendJobLog(job, step, message, index),
       });
-      results[index] = { index, success: true, email: result.email, provider: result.provider, logs };
+      job.results[index] = { index, success: true, email: result.email, provider: result.provider };
+      job.progress.success++;
+      job.progress.completed++;
+      appendJobLog(job, 'account-done', `✅ #${index + 1} 成功: ${result.email}`, index);
     } catch (err) {
       const cancelled = isAbortError(err) || job.controller.signal.aborted;
-      results[index] = {
+      job.results[index] = {
         index,
         success: false,
         cancelled,
         error: cancelled ? '注册已停止' : err.message,
-        logs,
       };
+      if (cancelled) job.progress.cancelled++;
+      else job.progress.failed++;
+      job.progress.completed++;
+      appendJobLog(
+        job,
+        cancelled ? 'account-cancelled' : 'account-failed',
+        cancelled ? `⏹ #${index + 1} 已停止` : `❌ #${index + 1} 失败: ${err.message}`,
+        index,
+      );
     }
   }
 
@@ -194,10 +253,15 @@ router.post('/batch', async (req, res) => {
 
   if (job.controller.signal.aborted) {
     for (let i = 0; i < total; i++) {
-      if (!results[i]) {
-        results[i] = { index: i, success: false, cancelled: true, error: '注册已停止', logs: [] };
+      if (!job.results[i]) {
+        job.results[i] = { index: i, success: false, cancelled: true, error: '注册已停止' };
+        job.progress.cancelled++;
+        job.progress.completed++;
       }
     }
+    appendJobLog(job, 'cancelled', '⏹ 批量注册已停止');
+  } else {
+    appendJobLog(job, 'done', '📊 批量注册完成');
   }
 
   const summary = {
@@ -205,17 +269,18 @@ router.post('/batch', async (req, res) => {
     concurrency,
     delayMs,
     maxWait,
-    success: results.filter(r => r?.success).length,
-    failed: results.filter(r => r && !r.success).length,
-    cancelled: results.filter(r => r?.cancelled).length,
+    success: job.progress.success,
+    failed: job.progress.failed,
+    cancelled: job.progress.cancelled,
   };
 
   finishRegisterJob(job, job.controller.signal.aborted ? 'cancelled' : 'completed', summary);
 
   res.json({
+    success: !job.controller.signal.aborted,
     jobId: job.id,
     cancelled: job.controller.signal.aborted,
-    results,
+    results: job.results,
     summary,
   });
 });

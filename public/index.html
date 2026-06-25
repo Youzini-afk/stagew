@@ -1190,6 +1190,7 @@
       loadModels();
       loadDomains();
       loadMailConfig();
+      restoreRegisterFromStatus();
       setInterval(loadStats, 30000);
     }
 
@@ -1542,36 +1543,138 @@
     }
 
     /* ─── Auto Register ─────────────────────────────────── */
-    let activeRegisterAppendLog = null;
+    let registerPollTimer = null;
+    let registerRequestInFlight = false;
+
+    function stopRegisterPolling() {
+      if (registerPollTimer) { clearInterval(registerPollTimer); registerPollTimer = null; }
+    }
+
+    function setRegisterRunning(running) {
+      const btn = document.getElementById('btn-register');
+      const stopBtn = document.getElementById('btn-stop-register');
+      if (!btn) return;
+      if (running) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 注册中...';
+        stopBtn.style.display = 'inline-flex';
+        stopBtn.disabled = false;
+        stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="material-symbols-rounded">play_arrow</span> 开始注册';
+        stopBtn.style.display = 'none';
+        stopBtn.disabled = false;
+        stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+      }
+    }
+
+    const REG_STATUS_LABELS = {
+      running: '运行中', stopping: '停止中', completed: '已完成',
+      cancelled: '已停止', failed: '失败'
+    };
+    const REG_STATUS_COLORS = {
+      running: '#89b4fa', stopping: '#f9e2af', completed: '#a6e3a1',
+      cancelled: '#f9e2af', failed: '#f38ba8'
+    };
+
+    function renderRegisterStatus(job) {
+      const logEl = document.getElementById('register-log');
+      if (!logEl || !job) return;
+      const p = job.progress || {};
+      let html = '<div style="margin-bottom:8px;padding:8px 10px;background:rgba(255,255,255,0.04);border-radius:8px;font-size:13px;line-height:1.7;">';
+      const label = REG_STATUS_LABELS[job.status] || job.status;
+      const color = REG_STATUS_COLORS[job.status] || '#cdd6f4';
+      html += `<span style="font-weight:600;color:${color};">● ${esc(label)}</span>`;
+      if (p.total != null) {
+        html += ` &nbsp;进度: 已启动 ${p.started || 0} / 完成 ${p.completed || 0} / 成功 ${p.success || 0} / 失败 ${p.failed || 0} / 停止 ${p.cancelled || 0} / 总数 ${p.total}`;
+      }
+      html += '</div>';
+
+      const logs = job.logs || [];
+      const shown = logs.slice(-500);
+      for (const l of shown) {
+        const cls = (l.step === 'done' || l.step === 'account-done') ? 'log-success'
+          : (l.step === 'account-failed' || l.step === 'error') ? 'log-error'
+          : 'log-step';
+        const tag = (l.index != null) ? `#${l.index + 1} ` : '';
+        const time = l.time ? new Date(l.time).toLocaleTimeString('zh-CN') : '';
+        html += `<div><span class="log-time">[${time}]</span> <span class="${cls}">${tag}${esc(l.message)}</span></div>`;
+      }
+      logEl.innerHTML = html;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    async function pollRegisterStatus() {
+      try {
+        const res = await apiFetch('/v1/register/status');
+        const data = await res.json();
+        const job = data.job;
+        if (!job) {
+          // 刚点击“开始注册”时，长请求可能还没来得及在后端创建 job。
+          // 这段时间继续保持轮询，避免第一轮 job:null 把实时状态轮询停掉。
+          if (!registerRequestInFlight) {
+            stopRegisterPolling();
+            setRegisterRunning(false);
+          }
+          return;
+        }
+        renderRegisterStatus(job);
+        if (job.status === 'running' || job.status === 'stopping') {
+          // 继续轮询
+        } else {
+          stopRegisterPolling();
+          setRegisterRunning(false);
+          loadStats();
+          loadAccounts();
+        }
+      } catch (e) {
+        /* 忽略，继续轮询 */
+      }
+    }
+
+    function startRegisterPolling() {
+      stopRegisterPolling();
+      pollRegisterStatus();
+      registerPollTimer = setInterval(pollRegisterStatus, 1000);
+    }
+
+    async function restoreRegisterFromStatus() {
+      try {
+        const res = await apiFetch('/v1/register/status');
+        const data = await res.json();
+        const job = data.job;
+        if (job && (job.status === 'running' || job.status === 'stopping')) {
+          setRegisterRunning(true);
+          startRegisterPolling();
+        } else if (job) {
+          renderRegisterStatus(job);
+        }
+      } catch (e) { /* ignore */ }
+    }
 
     async function stopRegister() {
       const stopBtn = document.getElementById('btn-stop-register');
-      const appendLog = activeRegisterAppendLog || ((msg, cls = '') => {
-        const logEl = document.getElementById('register-log');
-        const time = new Date().toLocaleTimeString('zh-CN');
-        logEl.innerHTML += `<div><span class="log-time">[${time}]</span> <span class="${cls}">${msg}</span></div>`;
-        logEl.scrollTop = logEl.scrollHeight;
-      });
-
-      stopBtn.disabled = true;
-      stopBtn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 停止中...';
-      appendLog('⏹ 正在请求停止...', 'log-step');
-
+      if (stopBtn) {
+        stopBtn.disabled = true;
+        stopBtn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 停止中...';
+      }
       try {
         const res = await apiFetch('/v1/register/stop', { method: 'POST' });
         const data = await res.json();
         if (data.stopped) {
-          appendLog('✅ 已发送停止信号，等待当前请求收尾...', 'log-success');
           showSnackbar('已发送停止信号', 'success');
         } else {
-          appendLog('ℹ️ 当前没有运行中的注册任务', 'log-step');
           showSnackbar('没有运行中的注册任务');
         }
+        // 继续轮询，直到任务变成 cancelled/completed/failed
+        if (!registerPollTimer) startRegisterPolling();
       } catch (err) {
-        appendLog(`❌ 停止请求失败: ${err.message}`, 'log-error');
         showSnackbar('停止请求失败: ' + err.message, 'error');
-        stopBtn.disabled = false;
-        stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+        if (stopBtn) {
+          stopBtn.disabled = false;
+          stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+        }
       }
     }
 
@@ -1602,8 +1705,6 @@
     }
 
     async function startRegister() {
-      const btn = document.getElementById('btn-register');
-      const stopBtn = document.getElementById('btn-stop-register');
       const countSelect = document.getElementById('reg-count');
       const customCount = document.getElementById('custom-count');
       let count = countSelect.value === 'custom' ? parseInt(customCount.value) : parseInt(countSelect.value);
@@ -1633,24 +1734,13 @@
       }
 
       const logEl = document.getElementById('register-log');
-
-      btn.disabled = true;
-      btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 注册中...';
-      stopBtn.style.display = 'inline-flex';
-      stopBtn.disabled = false;
-      stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+      setRegisterRunning(true);
+      registerRequestInFlight = true;
       logEl.innerHTML = '';
-
-      const appendLog = (msg, cls = '') => {
-        const time = new Date().toLocaleTimeString('zh-CN');
-        logEl.innerHTML += `<div><span class="log-time">[${time}]</span> <span class="${cls}">${msg}</span></div>`;
-        logEl.scrollTop = logEl.scrollHeight;
-      };
-      activeRegisterAppendLog = appendLog;
+      startRegisterPolling();
 
       try {
         if (count === 1) {
-          appendLog('🚀 开始注册...', 'log-step');
           const res = await apiFetch('/v1/register/auto', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1658,25 +1748,9 @@
           });
           const data = await res.json();
           if (!res.ok && !data.cancelled) {
-            appendLog(`❌ ${data.error || '请求失败'}`, 'log-error');
             showSnackbar(data.error || '请求失败', 'error');
-            return;
-          }
-          if (data.logs) {
-            data.logs.forEach(l => appendLog(l.message, l.step === 'done' ? 'log-success' : 'log-step'));
-          }
-          if (data.success) {
-            appendLog(`✅ 注册成功: ${data.email}`, 'log-success');
-            showSnackbar('注册成功！', 'success');
-          } else if (data.cancelled) {
-            appendLog('⏹ 注册已停止', 'log-step');
-            showSnackbar('注册已停止');
-          } else {
-            appendLog(`❌ 失败: ${data.error}`, 'log-error');
-            showSnackbar('注册失败', 'error');
           }
         } else {
-          appendLog(`🚀 批量注册 ${count} 个账号，并发 ${concurrency}，间隔 ${delayMs}ms...`, 'log-step');
           const res = await apiFetch('/v1/register/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1684,52 +1758,41 @@
           });
           const data = await res.json();
           if (!res.ok && !data.cancelled) {
-            appendLog(`❌ ${data.error || '请求失败'}`, 'log-error');
             showSnackbar(data.error || '请求失败', 'error');
-            return;
           }
-          if (!Array.isArray(data.results)) {
-            appendLog(`❌ ${data.error || '批量注册响应异常'}`, 'log-error');
-            showSnackbar(data.error || '批量注册响应异常', 'error');
-            return;
-          }
-          data.results.forEach((r, i) => {
-            if (r.logs) {
-              appendLog(`── 账号 #${i + 1} ──`, 'log-step');
-              r.logs.forEach(l => appendLog(l.message, l.step === 'done' ? 'log-success' : 'log-step'));
-            }
-            if (r.success) {
-              appendLog(`✅ #${i + 1} 成功: ${r.email}`, 'log-success');
-            } else if (r.cancelled) {
-              appendLog(`⏹ #${i + 1} 已停止`, 'log-step');
-            } else {
-              appendLog(`❌ #${i + 1} 失败: ${r.error}`, 'log-error');
-            }
-          });
-          const s = data.summary;
-          appendLog(`\n📊 完成: ${s.success}/${s.total} 成功, ${s.failed} 失败, ${s.cancelled || 0} 停止`, 'log-step');
-          showSnackbar(data.cancelled ? '注册已停止' : `注册完成: ${s.success}/${s.total}`, data.cancelled || s.success > 0 ? 'success' : 'error');
         }
+        // 最终再轮询一次，确保捕获终止状态并恢复 UI
+        await pollRegisterStatus();
         loadStats();
         loadAccounts();
       } catch (err) {
-        if (err.message && err.message.includes('已有自动注册任务')) {
-          appendLog(`ℹ️ ${err.message}`, 'log-step');
-          showSnackbar(err.message, 'error');
-        } else if (err.name === 'AbortError' || (err.message && err.message.includes('注册已停止'))) {
-          appendLog('⏹ 注册已停止', 'log-step');
-          showSnackbar('注册已停止');
+        if (err.message && err.message.includes('未登录')) {
+          return;
+        }
+        if (err.name === 'AbortError' || (err.message && err.message.includes('注册已停止'))) {
+          // 后端可能仍在收尾，轮询会恢复 UI
         } else {
-          appendLog(`❌ 请求失败: ${err.message}`, 'log-error');
-          showSnackbar('请求失败', 'error');
+          // 检查后端任务是否仍在运行
+          let active = false;
+          try {
+            const r = await apiFetch('/v1/register/status');
+            const d = await r.json();
+            active = d.job && (d.job.status === 'running' || d.job.status === 'stopping');
+          } catch (e) { /* ignore */ }
+          if (!active) {
+            showSnackbar('请求失败: ' + err.message, 'error');
+          }
+        }
+        if (!registerPollTimer) {
+          await restoreRegisterFromStatus();
         }
       } finally {
-        btn.disabled = false;
-        btn.innerHTML = '<span class="material-symbols-rounded">play_arrow</span> 开始注册';
-        stopBtn.disabled = false;
-        stopBtn.style.display = 'none';
-        stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
-        activeRegisterAppendLog = null;
+        registerRequestInFlight = false;
+        await pollRegisterStatus();
+        // 仅在没有进行中的轮询时恢复按钮（任务仍在运行则保持禁用）
+        if (!registerPollTimer) {
+          setRegisterRunning(false);
+        }
       }
     }
 
