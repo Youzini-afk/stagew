@@ -74,7 +74,7 @@ npm run dev      # 开发模式（热重载）
 镜像地址：
 
 ```text
-ghcr.io/youzini-afk/stagewise-2api:latest
+ghcr.io/youzini-afk/stagew:latest
 ```
 
 GitHub Actions 会在以下情况推送镜像：
@@ -86,7 +86,7 @@ GitHub Actions 会在以下情况推送镜像：
 Zeabur 操作：
 
 1. Zeabur → New Service → Docker Image / Container Image
-2. Image 填：`ghcr.io/youzini-afk/stagewise-2api:latest`
+2. Image 填：`ghcr.io/youzini-afk/stagew:latest`
 3. 挂载 Volume：`/data`
 4. 设置环境变量：
    - `DB_PATH=/data/accounts.db`
@@ -95,7 +95,7 @@ Zeabur 操作：
    - `MAIL_PROVIDER=`、`MAIL_URL=`、`MAIL_TOKEN=` 或 `CFMAIL_*`（按需）
 5. Health Check Path：`/healthz`
 
-> 如果 GHCR 包是 private，Zeabur 拉取会需要镜像凭证。建议在 GitHub 仓库 Packages 页面把 `stagewise-2api` package visibility 改为 Public，或在 Zeabur 配置 GHCR 账号/Token。
+> 如果 GHCR 包是 private，Zeabur 拉取会需要镜像凭证。建议在 GitHub 仓库 Packages 页面把 `stagew` package visibility 改为 Public，或在 Zeabur 配置 GHCR 账号/Token。
 
 ### 备选：Zeabur 从源码构建
 

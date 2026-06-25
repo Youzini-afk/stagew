@@ -14,7 +14,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: youzini-afk/stagewise-2api
+  IMAGE_NAME: youzini-afk/stagew
 
 jobs:
   docker:
