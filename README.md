@@ -65,13 +65,13 @@ npm run dev      # 开发模式（热重载）
 
 ## ☁️ Zeabur 部署
 
-适配已就绪：服务默认监听 `0.0.0.0`，数据库路径支持 `DB_PATH` / `DATA_DIR` 注入，提供 `/healthz` 探活端点，并内置公网管理鉴权。
+适配已就绪：仓库已内置 `Dockerfile`，Zeabur 会按 Docker 构建；服务默认监听 `0.0.0.0`，数据库路径支持 `DB_PATH` / `DATA_DIR` 注入，提供 `/healthz` 探活端点，并内置公网管理鉴权。
 
 ### 部署步骤
 
 1. 在 Zeabur 控制台 → New Project → 通过 GitHub 仓库导入本项目
-2. Zeabur 会自动识别 Node.js 项目并执行 `npm install && npm start`
-3. 平台自动注入 `PORT`，无需手动设置；`HOST` 已固定为 `0.0.0.0`
+2. Zeabur 检测到仓库根目录的 `Dockerfile` 后，会按 Docker 镜像构建部署
+3. 平台自动注入 `PORT`，无需手动设置；容器已固定监听 `0.0.0.0`
 4. 挂载持久化 Volume（强烈建议，否则重启丢数据）：
    - Volumes → Add Volume → 挂载路径填 `/data`
 5. 设置环境变量：
@@ -110,6 +110,24 @@ OpenAI 客户端建议这样填：
 | 备份对象 | `/data/accounts.db` 及其 `-wal` / `-shm` 文件 |
 
 > 提示：未挂载 Volume 时数据库会写入容器临时层，重启即丢。务必按上表挂载 `/data`。
+
+### 本地 Docker 运行
+
+```bash
+docker build -t stagewise-2api .
+
+docker run --rm -p 3000:3000 \
+  -e ADMIN_TOKEN=change-me \
+  -e PROXY_API_KEY=sk-local-test \
+  -e DB_PATH=/data/accounts.db \
+  -v stagewise-2api-data:/data \
+  stagewise-2api
+```
+
+访问：
+
+- WebUI：`http://localhost:3000/dashboard`
+- 健康检查：`http://localhost:3000/healthz`
 
 ## 📖 使用方式
 
