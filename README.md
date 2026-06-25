@@ -262,8 +262,11 @@ WebUI 自动注册开始后可点击“停止”，后端会通过 `/v1/register
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/v1/usage` | 单账号用量（使用当前 token） |
-| GET | `/v1/usage/pool` | 账号池额度汇总（5 分钟缓存） |
-| GET | `/v1/usage/pool?refresh=true` | 强制刷新（绕过缓存） |
+| GET | `/v1/usage/pool` | 账号池额度汇总（分页，5 分钟缓存） |
+| GET | `/v1/usage/pool?page=1&pageSize=20` | 分页查询当前页活跃账号（pageSize 1-100，默认 20） |
+| GET | `/v1/usage/pool?refresh=true&page=1&pageSize=20` | 强制刷新当前页（绕过缓存，仍受并发/超时限制） |
+
+额度查询按分页执行：`page`（默认 1）与 `pageSize`（默认 20，最大 100）。接口只查询当前页活跃账号（`ORDER BY id ASC LIMIT ? OFFSET ?`），summary 返回 `totalAccounts`（全量）、`totalPages`、`page`、`pageSize`、`pageAccounts`，以及本页的 `success/failed/timeout/elapsedMs/updatedAt`。单账号查询带 12s 超时、并发上限 5，慢账号不阻塞其它账号。
 
 ### 设置
 

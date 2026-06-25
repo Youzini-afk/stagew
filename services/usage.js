@@ -2,25 +2,47 @@ import { config } from '../config.js';
 import { getDb } from '../db/database.js';
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 分钟缓存
+const PER_ACCOUNT_TIMEOUT_MS = 12000; // 单账号查询超时
+const POOL_CONCURRENCY = 5; // 账号池额度查询并发上限
+
+/**
+ * 带超时的 fetch 封装
+ */
+function fetchWithTimeout(url, options = {}, timeoutMs = PER_ACCOUNT_TIMEOUT_MS) {
+  if (!options.signal && timeoutMs > 0) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal })
+      .finally(() => clearTimeout(timer));
+  }
+  return fetch(url, options);
+}
 
 /**
  * 获取单个账号的用量信息（带持久化缓存）
  */
-export async function getAccountUsage(token, accountId = null) {
-  // 先查缓存
-  if (accountId) {
+export async function getAccountUsage(token, accountId = null, opts = {}) {
+  const { timeoutMs = PER_ACCOUNT_TIMEOUT_MS, forceFresh = false } = opts;
+  return fetchUsageFromApi(token, accountId, { forceFresh, timeoutMs });
+}
+
+/**
+ * 内部统一查询：先查缓存（非强制刷新时），再走带超时的 API
+ */
+async function fetchUsageFromApi(token, accountId, { forceFresh = false, timeoutMs = PER_ACCOUNT_TIMEOUT_MS }) {
+  if (!forceFresh && accountId) {
     const cached = getCachedUsage(accountId);
     if (cached) return cached;
   }
 
   try {
-    const response = await fetch(`${config.apiUrl}/v1/usage/current`, {
+    const response = await fetchWithTimeout(`${config.apiUrl}/v1/usage/current`, {
       headers: {
         Authorization: `Bearer ${token}`,
         Origin: 'https://console.stagewise.io',
         'User-Agent': 'stagewise-2api/1.0',
       },
-    });
+    }, timeoutMs);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -37,6 +59,13 @@ export async function getAccountUsage(token, accountId = null) {
 
     return result;
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return {
+        success: false,
+        error: `查询超时 (${Math.round(timeoutMs / 1000)}s)`,
+        timedOut: true,
+      };
+    }
     return { success: false, error: err.message };
   }
 }
@@ -169,40 +198,88 @@ function createProgressBar(percent, width = 20) {
 }
 
 /**
- * 获取账号池所有账号的额度汇总（带缓存 + 强制刷新选项）
+ * 获取账号池所有账号的额度汇总（带缓存 + 强制刷新选项 + 分页）
+ *
+ * - 分页：opts.page（默认 1）、opts.pageSize（默认 20，限制 1-100）
+ * - SQL 只查当前页活跃账号：ORDER BY id ASC LIMIT ? OFFSET ?
+ * - 每账号查询带超时（PER_ACCOUNT_TIMEOUT_MS），慢/无响应账号不阻塞其它账号
+ * - 并发上限 POOL_CONCURRENCY，避免一次打爆 Stagewise
+ * - 返回部分结果 + summary（含 totalAccounts/totalPages/page/pageSize/pageAccounts）
  */
-export async function getPoolUsage(forceRefresh = false) {
+export async function getPoolUsage(forceRefresh = false, opts = {}) {
   const db = getDb();
-  const stmt = db.prepare('SELECT id, email, token, name FROM accounts WHERE is_active = 1');
-  const accounts = stmt.all();
 
-  // 并行请求（带 accountId 用于缓存）
-  const results = await Promise.all(
-    accounts.map(async (account) => {
-      const usage = forceRefresh
-        ? await getAccountUsageFresh(account.token, account.id)
-        : await getAccountUsage(account.token, account.id);
-      return {
-        id: account.id,
-        email: account.email,
-        name: account.name,
-        ...usage,
-      };
-    })
+  // 分页参数解析与钳制
+  let page = Number.parseInt(opts.page, 10);
+  if (!Number.isFinite(page) || page < 1) page = 1;
+  let pageSize = Number.parseInt(opts.pageSize, 10);
+  if (!Number.isFinite(pageSize) || pageSize < 1) pageSize = 20;
+  pageSize = Math.min(pageSize, 100);
+
+  const totalAccounts = db.prepare('SELECT COUNT(*) AS n FROM accounts WHERE is_active = 1').get().n;
+  const totalPages = Math.max(1, Math.ceil(totalAccounts / pageSize));
+  if (page > totalPages) page = totalPages;
+  const offset = (page - 1) * pageSize;
+
+  const accounts = db.prepare(
+    'SELECT id, email, token, name FROM accounts WHERE is_active = 1 ORDER BY id ASC LIMIT ? OFFSET ?'
+  ).all(pageSize, offset);
+  const pageAccounts = accounts.length;
+
+  const startedAt = Date.now();
+  const results = new Array(pageAccounts);
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < pageAccounts) {
+      const idx = cursor++;
+      const account = accounts[idx];
+      try {
+        const usage = await fetchUsageFromApi(account.token, account.id, {
+          forceFresh: forceRefresh,
+          timeoutMs: PER_ACCOUNT_TIMEOUT_MS,
+        });
+        results[idx] = {
+          id: account.id,
+          email: account.email,
+          name: account.name,
+          ...usage,
+        };
+      } catch (err) {
+        const timedOut = err?.name === 'AbortError';
+        results[idx] = {
+          id: account.id,
+          email: account.email,
+          name: account.name,
+          success: false,
+          error: timedOut ? `查询超时 (${Math.round(PER_ACCOUNT_TIMEOUT_MS / 1000)}s)` : (err?.message || '查询失败'),
+          timedOut,
+        };
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(POOL_CONCURRENCY, pageAccounts) }, () => worker())
   );
 
-  // 汇总
+  // 汇总（基于本页）
   let totalDaily = 0, totalWeekly = 0, totalMonthly = 0;
   let successCount = 0;
+  let failedCount = 0;
+  let timeoutCount = 0;
 
   for (const r of results) {
-    if (r.success && r.raw) {
+    if (r?.success && r.raw) {
       successCount++;
       for (const w of r.raw.windows || []) {
         if (w.type === 'daily') totalDaily += w.usedPercent || 0;
         if (w.type === 'weekly') totalWeekly += w.usedPercent || 0;
         if (w.type === 'monthly') totalMonthly += w.usedPercent || 0;
       }
+    } else {
+      failedCount++;
+      if (r?.timedOut) timeoutCount++;
     }
   }
 
@@ -213,8 +290,22 @@ export async function getPoolUsage(forceRefresh = false) {
   return {
     accounts: results,
     summary: {
-      totalAccounts: accounts.length,
+      // 分页信息
+      totalAccounts,
+      total: totalAccounts,
+      totalPages,
+      page,
+      pageSize,
+      pageAccounts,
+      // 统计
       successCount,
+      success: successCount,
+      failedCount,
+      failed: failedCount,
+      timeoutCount,
+      timeout: timeoutCount,
+      elapsedMs: Date.now() - startedAt,
+      updatedAt: new Date().toISOString(),
       avgDailyUsed: avgDaily + '%',
       avgWeeklyUsed: avgWeekly + '%',
       avgMonthlyUsed: avgMonthly + '%',
@@ -227,25 +318,7 @@ export async function getPoolUsage(forceRefresh = false) {
 /**
  * 强制从 API 获取（跳过缓存）
  */
-async function getAccountUsageFresh(token, accountId) {
-  try {
-    const response = await fetch(`${config.apiUrl}/v1/usage/current`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Origin: 'https://console.stagewise.io',
-        'User-Agent': 'stagewise-2api/1.0',
-      },
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      return { success: false, error: `获取用量失败 (${response.status}): ${text}` };
-    }
-
-    const raw = await response.json();
-    if (accountId) saveUsageToCache(accountId, raw);
-    return { success: true, raw, ...formatUsage(raw), cached: false };
-  } catch (err) {
-    return { success: false, error: err.message };
-  }
+export async function getAccountUsageFresh(token, accountId, opts = {}) {
+  const { timeoutMs = PER_ACCOUNT_TIMEOUT_MS } = opts;
+  return fetchUsageFromApi(token, accountId, { forceFresh: true, timeoutMs });
 }

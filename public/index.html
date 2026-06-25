@@ -779,10 +779,25 @@
             <span class="material-symbols-rounded">monitoring</span>
             账号池额度
           </div>
-          <button class="btn btn-filled btn-sm" onclick="loadUsage(true)" id="btn-refresh-usage">
-            <span class="material-symbols-rounded">refresh</span>
-            强制刷新
-          </button>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-tonal btn-sm" onclick="changeUsagePage(-1)" id="btn-usage-prev" disabled>
+              <span class="material-symbols-rounded">chevron_left</span>
+            </button>
+            <span id="usage-page-info" style="font-size:13px;color:var(--md-on-surface-variant);min-width:70px;text-align:center;">- / -</span>
+            <button class="btn btn-tonal btn-sm" onclick="changeUsagePage(1)" id="btn-usage-next" disabled>
+              <span class="material-symbols-rounded">chevron_right</span>
+            </button>
+            <select id="usage-page-size" onchange="changeUsagePageSize()" style="font-size:13px;padding:6px 8px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface-variant);border:none;">
+              <option value="10">10/页</option>
+              <option value="20" selected>20/页</option>
+              <option value="50">50/页</option>
+              <option value="100">100/页</option>
+            </select>
+            <button class="btn btn-filled btn-sm" onclick="loadUsage(true)" id="btn-refresh-usage">
+              <span class="material-symbols-rounded">refresh</span>
+              强制刷新
+            </button>
+          </div>
         </div>
         <div id="usage-summary"></div>
         <div id="usage-list">
@@ -1195,11 +1210,18 @@
     }
 
     /* ─── Tab Switch ────────────────────────────────────── */
+    let usageLoaded = false;
+
     function switchTab(name, btn) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
       document.getElementById('tab-' + name).classList.add('active');
       btn.classList.add('active');
+
+      if (name === 'usage' && !usageLoaded) {
+        usageLoaded = true;
+        loadUsage(false, 1);
+      }
     }
 
     /* ─── Stats ─────────────────────────────────────────── */
@@ -1433,28 +1455,90 @@
     }
 
     /* ─── Usage ─────────────────────────────────────────── */
-    async function loadUsage(forceRefresh = false) {
+    const USAGE_REQUEST_TIMEOUT_MS = 90000; // 整体请求超时
+    let usagePage = 1;
+    let usagePageSize = 20;
+    let usageTotalPages = 1;
+    let usageTotalAccounts = 0;
+
+    function updateUsagePagingControls() {
+      const prev = document.getElementById('btn-usage-prev');
+      const next = document.getElementById('btn-usage-next');
+      const info = document.getElementById('usage-page-info');
+      if (prev) prev.disabled = usagePage <= 1;
+      if (next) next.disabled = usagePage >= usageTotalPages;
+      if (info) info.textContent = `${usagePage} / ${usageTotalPages}`;
+    }
+
+    function changeUsagePage(delta) {
+      const next = usagePage + delta;
+      if (next < 1 || next > usageTotalPages) return;
+      usagePage = next;
+      loadUsage(false, usagePage);
+    }
+
+    function changeUsagePageSize() {
+      usagePageSize = parseInt(document.getElementById('usage-page-size').value) || 20;
+      usagePage = 1;
+      loadUsage(false, 1);
+    }
+
+    async function loadUsage(forceRefresh = false, page) {
+      usageLoaded = true;
       const btn = document.getElementById('btn-refresh-usage');
+      const btnLabel = forceRefresh ? '强制刷新' : '加载';
       btn.disabled = true;
       btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 加载中...';
 
+      if (page != null) usagePage = page;
+      const curPage = usagePage;
+      const curPageSize = usagePageSize;
+
       document.getElementById('usage-list').innerHTML =
         '<div class="loading-container"><div class="spinner"></div>正在查询额度...</div>';
+      document.getElementById('usage-summary').innerHTML = '';
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), USAGE_REQUEST_TIMEOUT_MS);
 
       try {
-        const url = forceRefresh ? '/v1/usage/pool?refresh=true' : '/v1/usage/pool';
-        const res = await apiFetch(url);
+        const params = new URLSearchParams({ page: curPage, pageSize: curPageSize });
+        if (forceRefresh) params.set('refresh', 'true');
+        const url = `/v1/usage/pool?${params.toString()}`;
+        const res = await apiFetch(url, { signal: controller.signal });
         const data = await res.json();
 
         // Summary bar
         if (data.summary) {
           const s = data.summary;
+          usageTotalAccounts = s.totalAccounts != null ? s.totalAccounts : (s.total || 0);
+          usageTotalPages = s.totalPages || 1;
+          usagePage = s.page || curPage;
+          usagePageSize = s.pageSize || curPageSize;
+          updateUsagePagingControls();
+
+          const elapsed = s.elapsedMs != null ? (s.elapsedMs / 1000).toFixed(1) + 's' : '-';
+          const failedInfo = (s.failed > 0 || s.timeout > 0)
+            ? `<div class="summary-item"><span class="material-symbols-rounded">error_outline</span><div><div class="label">失败/超时</div><div class="value" style="color:var(--md-error);">${s.failed}${s.timeout > 0 ? ` (超时 ${s.timeout})` : ''}</div></div></div>`
+            : '';
+          const elapsedInfo = s.elapsedMs != null
+            ? `<div class="summary-item"><span class="material-symbols-rounded">schedule</span><div><div class="label">耗时</div><div class="value">${elapsed}</div></div></div>`
+            : '';
+          const pageInfo = s.totalPages != null
+            ? `<div class="summary-item"><span class="material-symbols-rounded">menu_book</span><div><div class="label">分页</div><div class="value">${s.page}/${s.totalPages} · 本页 ${s.pageAccounts}</div></div></div>`
+            : '';
           document.getElementById('usage-summary').innerHTML = `
             <div class="summary-bar">
               <div class="summary-item">
                 <span class="material-symbols-rounded">group</span>
-                <div><div class="label">账号数</div><div class="value">${s.totalAccounts}</div></div>
+                <div><div class="label">总账号数</div><div class="value">${usageTotalAccounts}</div></div>
               </div>
+              ${pageInfo}
+              <div class="summary-item">
+                <span class="material-symbols-rounded">check_circle</span>
+                <div><div class="label">本页成功</div><div class="value">${s.success}</div></div>
+              </div>
+              ${failedInfo}
               <div class="summary-item">
                 <span class="material-symbols-rounded">calendar_today</span>
                 <div><div class="label">日均使用</div><div class="value">${s.avgDailyUsed}</div></div>
@@ -1471,6 +1555,7 @@
                 <span class="material-symbols-rounded">cached</span>
                 <div><div class="label">来源</div><div class="value">${s.cached ? '缓存' : '实时'}</div></div>
               </div>
+              ${elapsedInfo}
             </div>`;
         }
 
@@ -1499,7 +1584,9 @@
             </div>
             ${acc.success
               ? '<span class="chip chip-success">在线</span>'
-              : '<span class="chip chip-error">失败</span>'}
+              : acc.timedOut
+                ? '<span class="chip chip-error">超时</span>'
+                : '<span class="chip chip-error">失败</span>'}
           </div>`;
 
           if (acc.success && acc.raw && acc.raw.windows) {
@@ -1533,12 +1620,30 @@
         });
         html += '</div>';
         document.getElementById('usage-list').innerHTML = html;
+
+        // 部分失败提示
+        const s2 = data.summary;
+        if (s2 && (s2.failed > 0 || s2.timeout > 0) && s2.success > 0) {
+          showSnackbar(`部分账号查询失败：成功 ${s2.success} / 失败 ${s2.failed}${s2.timeout > 0 ? ` (超时 ${s2.timeout})` : ''}`, 'error');
+        }
       } catch (err) {
+        if (err.name === 'AbortError') err.message = '查询超时';
+        const isTimeout = err.name === 'AbortError';
+        const msg = isTimeout ? `查询超时 (${USAGE_REQUEST_TIMEOUT_MS / 1000}s)，请稍后重试` : (err.message || '查询失败');
         document.getElementById('usage-list').innerHTML =
-          `<div class="empty-state"><span class="material-symbols-rounded">error</span><h3>加载失败</h3><p>${esc(err.message)}</p></div>`;
+          `<div class="empty-state">
+            <span class="material-symbols-rounded">error</span>
+            <h3>${isTimeout ? '查询超时' : '加载失败'}</h3>
+            <p>${esc(msg)}</p>
+            <button class="btn btn-tonal btn-sm" style="margin-top:12px;" onclick="loadUsage(${forceRefresh}, ${curPage})">
+              <span class="material-symbols-rounded">refresh</span> 重试
+            </button>
+          </div>`;
+        showSnackbar(msg, 'error');
       } finally {
+        clearTimeout(timer);
         btn.disabled = false;
-        btn.innerHTML = '<span class="material-symbols-rounded">refresh</span> 强制刷新';
+        btn.innerHTML = `<span class="material-symbols-rounded">refresh</span> ${btnLabel}`;
       }
     }
 
