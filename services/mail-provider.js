@@ -32,23 +32,23 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
   return { ...mailbox, provider: getMailProviderName() };
 }
 
-export async function getDomains() {
-  return getProviderModule().getDomains();
+export async function getDomains(opts = {}) {
+  return getProviderModule().getDomains(opts);
 }
 
 export async function waitForVerificationCode(mailboxOrObject, opts = {}) {
   return getProviderModule().waitForVerificationCode(mailboxOrObject, opts);
 }
 
-export async function getEmails(mailboxOrObject, limit = 20) {
-  return getProviderModule().getEmails(mailboxOrObject, limit);
+export async function getEmails(mailboxOrObject, limit = 20, opts = {}) {
+  return getProviderModule().getEmails(mailboxOrObject, limit, opts);
 }
 
-export async function checkHealth() {
+export async function checkHealth(opts = {}) {
   const provider = getProviderModule();
   if (typeof provider.checkHealth === 'function') {
-    return provider.checkHealth();
+    return provider.checkHealth(opts);
   }
-  const domains = await provider.getDomains();
+  const domains = await provider.getDomains(opts);
   return { ok: true, domains };
 }

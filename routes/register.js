@@ -1,6 +1,7 @@
 import express from 'express';
 import { autoRegister } from '../services/auto-register.js';
 import * as mailProvider from '../services/mail-provider.js';
+import * as proxyPool from '../services/proxy-pool.js';
 
 const router = express.Router();
 
@@ -128,6 +129,11 @@ router.post('/auto', async (req, res) => {
   appendJobLog(job, 'start', '🚀 开始注册', 0);
   job.progress.started = 1;
 
+  const proxyStart = Date.now();
+  const acquired = proxyPool.acquireProxy();
+  const proxyLabel = acquired ? proxyPool.maskProxyUrl(acquired.url) : '直连';
+  appendJobLog(job, 'proxy', `代理: ${proxyLabel}`, 0);
+
   try {
     throwIfAborted(job.controller.signal);
     const result = await autoRegister({
@@ -135,9 +141,12 @@ router.post('/auto', async (req, res) => {
       addToPool: addToPool ?? true,
       maxWait: normalizedMaxWait,
       signal: job.controller.signal,
+      dispatcher: acquired?.dispatcher,
+      proxyLabel,
       onProgress: (step, message) => appendJobLog(job, step, message, 0),
     });
 
+    if (acquired) proxyPool.recordProxyResult(acquired.url, true, Date.now() - proxyStart);
     job.results[0] = { index: 0, success: true, email: result.email, provider: result.provider };
     job.progress.success = 1;
     job.progress.completed = 1;
@@ -146,6 +155,7 @@ router.post('/auto', async (req, res) => {
     finishRegisterJob(job, 'completed', summary);
     res.json({ success: true, email: result.email, token: result.token, provider: result.provider, jobId: job.id, logs: job.logs });
   } catch (err) {
+    if (acquired) proxyPool.recordProxyResult(acquired.url, false, Date.now() - proxyStart, err.message);
     if (isAbortError(err) || job.controller.signal.aborted) {
       job.results[0] = { index: 0, success: false, cancelled: true, error: '注册已停止' };
       job.progress.cancelled = 1;
@@ -204,6 +214,9 @@ router.post('/batch', async (req, res) => {
   }
 
   async function runOne(index) {
+    const proxyStart = Date.now();
+    const acquired = proxyPool.acquireProxy();
+    const proxyLabel = acquired ? proxyPool.maskProxyUrl(acquired.url) : '直连';
     try {
       throwIfAborted(job.controller.signal);
       appendJobLog(job, 'account-queued', `账号 #${index + 1} 等待启动`, index);
@@ -211,18 +224,22 @@ router.post('/batch', async (req, res) => {
       throwIfAborted(job.controller.signal);
       job.progress.started++;
       job.progress.currentIndex = index;
-      appendJobLog(job, 'account-start', `账号 #${index + 1} 开始`, index);
+      appendJobLog(job, 'account-start', `账号 #${index + 1} 开始 · 代理 ${proxyLabel}`, index);
       const result = await autoRegister({
         addToPool: true,
         maxWait,
         signal: job.controller.signal,
+        dispatcher: acquired?.dispatcher,
+        proxyLabel,
         onProgress: (step, message) => appendJobLog(job, step, message, index),
       });
+      if (acquired) proxyPool.recordProxyResult(acquired.url, true, Date.now() - proxyStart);
       job.results[index] = { index, success: true, email: result.email, provider: result.provider };
       job.progress.success++;
       job.progress.completed++;
       appendJobLog(job, 'account-done', `✅ #${index + 1} 成功: ${result.email}`, index);
     } catch (err) {
+      if (acquired) proxyPool.recordProxyResult(acquired.url, false, Date.now() - proxyStart, err.message);
       const cancelled = isAbortError(err) || job.controller.signal.aborted;
       job.results[index] = {
         index,

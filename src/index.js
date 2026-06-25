@@ -12,6 +12,7 @@ import poolRouter from '../routes/pool.js';
 import usageRouter from '../routes/usage.js';
 import registerRouter from '../routes/register.js';
 import settingsRouter from '../routes/settings.js';
+import proxyPoolRouter from '../routes/proxy-pool.js';
 import { handleListModels, handleChatCompletions } from '../services/proxy.js';
 import { STAGEWISE_MODELS } from '../services/models.js';
 
@@ -46,6 +47,7 @@ app.use('/v1/pool', requireAdmin, poolRouter);
 app.use('/v1/settings', requireAdmin, settingsRouter);
 app.use('/v1/register', requireAdmin, registerRouter);
 app.use('/v1/auth', requireAdmin, authRouter);
+app.use('/v1/proxy-pool', requireAdmin, proxyPoolRouter);
 
 // /v1/usage：仅 /pool 子路由需要 admin；普通 / 用账号 token 流程，不挂 admin
 app.use('/v1/usage/pool', requireAdmin);

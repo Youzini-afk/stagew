@@ -268,6 +268,26 @@ WebUI 自动注册开始后可点击“停止”，后端会通过 `/v1/register
 
 额度查询按分页执行：`page`（默认 1）与 `pageSize`（默认 20，最大 100）。接口只查询当前页活跃账号（`ORDER BY id ASC LIMIT ? OFFSET ?`），summary 返回 `totalAccounts`（全量）、`totalPages`、`page`、`pageSize`、`pageAccounts`，以及本页的 `success/failed/timeout/elapsedMs/updatedAt`。单账号查询带 12s 超时、并发上限 5，慢账号不阻塞其它账号。
 
+### 代理池
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/v1/proxy-pool` | 代理池概览（启用状态、策略、节点列表，URL 脱敏只显示 host:port） |
+| POST | `/v1/proxy-pool/nodes` | 添加节点 `body:{url, name?}` |
+| DELETE | `/v1/proxy-pool/nodes/:id` | 删除节点 |
+| POST | `/v1/proxy-pool/nodes/:id/toggle` | 启停 `body:{disabled}` |
+| POST | `/v1/proxy-pool/nodes/:id/test` | 测试节点连通性（10s 超时） |
+| POST | `/v1/proxy-pool/import` | 批量导入 `body:{text}`（按行/逗号拆分） |
+| PUT | `/v1/proxy-pool/settings` | 更新设置 `body:{enabled?, strategy?}` |
+
+代理池在**自动注册**时生效：每次注册开始时按策略（`round-robin` 轮询 / `random` 随机）选一个未禁用且未冷却的代理，把 dispatcher 注入到创建邮箱、发送 OTP、收取验证码、验证 OTP 的每一步 fetch。注册成功/失败后调用 `recordProxyResult` 更新健康度；失败节点按指数退避冷却（30s 起，2^(n-1) 倍增，上限 30 分钟）。
+
+- 仅支持 `http://`、`https://`、`socks5://` 代理 URL（基于 undici `ProxyAgent` / `Socks5ProxyAgent`，纯 JS 无 native 编译）。
+- **不支持** ss/vmess/trojan（需 mihomo 等本地客户端转为 socks5 后再用本代理池）。
+- 代理池禁用或池空时，降级到 `PROXY_URL`；两者都无则直连。
+- 节点 URL 含凭证会存入 SQLite（脱敏只在展示/日志层进行，存储是必要的）。
+- 日志只显示 `host:port`，不显示用户名密码。
+
 ### 设置
 
 | 方法 | 路径 | 说明 |
@@ -365,6 +385,10 @@ stagewise-2api/
 | `CFMAIL_CREATE_ENDPOINT` | CFMail 创建邮箱 Endpoint | `/admin/new_address` |
 | `CFMAIL_LIST_ENDPOINT` | CFMail 读取邮件 Endpoint | `/api/mails` |
 | `CFMAIL_HEALTH_ENDPOINT` | CFMail 健康检查 Endpoint | `/healthz` |
+| `PROXY_POOL_ENABLED` | 启用代理池（自动注册时按轮询/随机选代理） | `false` |
+| `PROXY_POOL_URLS` | 代理 URL 列表（逗号或换行分隔，DB 无节点时种子导入；示例占位 `http://host:port,socks5://host:port`） | 空 |
+| `PROXY_POOL_STRATEGY` | 代理池策略：`round-robin` 或 `random` | `round-robin` |
+| `PROXY_URL` | 降级代理（代理池关闭或空时使用；可为空即直连） | 空 |
 
 > 数据库路径解析顺序：`DB_PATH` > `DATA_DIR/accounts.db` > 项目内 `../data/accounts.db`。父目录不存在时会自动 `mkdirSync(..., { recursive: true })`。
 

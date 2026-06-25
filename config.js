@@ -49,4 +49,11 @@ export const config = {
   extraHeaders: {
     'User-Agent': 'stagewise-2api/1.0',
   },
+
+  // 代理池（自动注册时按轮询/随机选代理，失败冷却指数退避）
+  // 仅支持 http://、https://、socks5://；不支持 ss/vmess/trojan
+  proxyPoolEnabled: process.env.PROXY_POOL_ENABLED === 'true',
+  proxyPoolUrls: process.env.PROXY_POOL_URLS || '',
+  proxyUrl: process.env.PROXY_URL || '',
+  proxyPoolStrategy: process.env.PROXY_POOL_STRATEGY || 'round-robin',
 };

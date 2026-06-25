@@ -59,7 +59,7 @@ function getBaseUrl() {
  * GET = 随机生成; POST = 可指定 prefix/domain
  */
 export async function createMailbox(prefix = null, domain = null, opts = {}) {
-  const { signal } = opts;
+  const { signal, dispatcher } = opts;
   throwIfAborted(signal);
   const base = getBaseUrl();
   const headers = getHeaders();
@@ -69,23 +69,27 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
     if (prefix) body.prefix = prefix;
     if (domain) body.domain = domain;
 
-    const res = await fetch(`${base}/api/generate-email`, {
+    const fetchOpts = {
       method: 'POST',
       signal,
       headers,
       body: JSON.stringify(body),
-    });
+    };
+    if (dispatcher) fetchOpts.dispatcher = dispatcher;
+    const res = await fetch(`${base}/api/generate-email`, fetchOpts);
     throwIfAborted(signal);
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '创建邮箱失败');
     return { email: data.data.email, usage: data.usage, provider: 'gptmail' };
   }
 
-  const res = await fetch(`${base}/api/generate-email`, {
+  const fetchOpts = {
     method: 'GET',
     signal,
     headers,
-  });
+  };
+  if (dispatcher) fetchOpts.dispatcher = dispatcher;
+  const res = await fetch(`${base}/api/generate-email`, fetchOpts);
   throwIfAborted(signal);
   const data = await res.json();
   if (!data.success) throw new Error(data.error || '创建邮箱失败');
@@ -98,12 +102,12 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
  */
 let cachedDomains = null;
 
-export async function getDomains() {
+export async function getDomains(opts = {}) {
   if (cachedDomains && cachedDomains.length > 0) {
     return cachedDomains;
   }
   try {
-    const mailbox = await createMailbox();
+    const mailbox = await createMailbox(null, null, opts);
     const domain = mailbox.email.split('@')[1];
     cachedDomains = [domain];
     return cachedDomains;
@@ -120,7 +124,7 @@ export function clearDomainCache() {
  * 获取邮件列表
  */
 export async function getEmails(mailbox, limit = 20, opts = {}) {
-  const { signal } = opts;
+  const { signal, dispatcher } = opts;
   throwIfAborted(signal);
   const base = getBaseUrl();
   const headers = getHeaders();
@@ -130,9 +134,11 @@ export async function getEmails(mailbox, limit = 20, opts = {}) {
     throw new Error('GPTMail 读取邮件需要邮箱地址');
   }
 
+  const fetchOpts = { headers, signal };
+  if (dispatcher) fetchOpts.dispatcher = dispatcher;
   const res = await fetch(
     `${base}/api/emails?email=${encodeURIComponent(emailAddress)}`,
-    { headers, signal }
+    fetchOpts
   );
   const data = await res.json();
   if (!data.success) throw new Error(data.error || '获取邮件失败');
@@ -164,14 +170,14 @@ export async function getEmailDetail(emailId) {
  * 轮询等待验证码邮件
  */
 export async function waitForVerificationCode(mailbox, opts = {}) {
-  const { maxWait = 60000, interval = 3000, senderFilter, signal } = opts;
+  const { maxWait = 60000, interval = 3000, senderFilter, signal, dispatcher } = opts;
   const deadline = Date.now() + maxWait;
   const seenIds = new Set();
 
   while (Date.now() < deadline) {
     throwIfAborted(signal);
     try {
-      const emails = await getEmails(mailbox, 20, { signal });
+      const emails = await getEmails(mailbox, 20, { signal, dispatcher });
       throwIfAborted(signal);
       for (const email of emails) {
         const seenKey = `${email.id || ''}:${email.verification_code || ''}:${email.content_length || 0}`;

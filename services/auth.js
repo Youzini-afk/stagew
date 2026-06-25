@@ -42,18 +42,20 @@ function extractErrorMessage(text) {
  * @returns {Promise<{success: boolean, error?: string}>}
  */
 export async function sendOtp(email, type = 'sign-in', opts = {}) {
-  const { signal } = opts;
+  const { signal, dispatcher } = opts;
+  const fetchOpts = {
+    method: 'POST',
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: 'https://console.stagewise.io',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+    },
+    body: JSON.stringify({ email, type }),
+  };
+  if (dispatcher) fetchOpts.dispatcher = dispatcher;
   try {
-    const response = await fetch(`${AUTH_BASE}/email-otp/send-verification-otp`, {
-      method: 'POST',
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: 'https://console.stagewise.io',
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-      },
-      body: JSON.stringify({ email, type }),
-    });
+    const response = await fetch(`${AUTH_BASE}/email-otp/send-verification-otp`, fetchOpts);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -90,18 +92,20 @@ export async function sendOtp(email, type = 'sign-in', opts = {}) {
  * @returns {Promise<{success: boolean, token?: string, error?: string}>}
  */
 export async function verifyOtp(email, code, opts = {}) {
-  const { signal } = opts;
+  const { signal, dispatcher } = opts;
+  const fetchOpts = {
+    method: 'POST',
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: 'https://console.stagewise.io',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+    },
+    body: JSON.stringify({ email, otp: code }),
+  };
+  if (dispatcher) fetchOpts.dispatcher = dispatcher;
   try {
-    const response = await fetch(`${AUTH_BASE}/sign-in/email-otp`, {
-      method: 'POST',
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: 'https://console.stagewise.io',
-        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-      },
-      body: JSON.stringify({ email, otp: code }),
-    });
+    const response = await fetch(`${AUTH_BASE}/sign-in/email-otp`, fetchOpts);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
@@ -187,16 +191,19 @@ export async function listSessions(token) {
  * @param {string} token - Bearer token
  * @returns {Promise<object>}
  */
-export async function getUsage(token) {
+export async function getUsage(token, opts = {}) {
+  const { dispatcher } = opts;
+  const fetchOpts = {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Origin: 'https://console.stagewise.io',
+      'User-Agent': 'stagewise-2api/1.0',
+    },
+  };
+  if (dispatcher) fetchOpts.dispatcher = dispatcher;
   try {
-    const response = await fetch(`${config.apiUrl}/v1/usage/current`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Origin: 'https://console.stagewise.io',
-        'User-Agent': 'stagewise-2api/1.0',
-      },
-    });
+    const response = await fetch(`${config.apiUrl}/v1/usage/current`, fetchOpts);
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');

@@ -28,6 +28,8 @@ export async function autoRegister(opts = {}) {
     addToPool = true,
     maxWait = 60000,
     signal,
+    dispatcher,
+    proxyLabel,
     onProgress = () => {},
   } = opts;
 
@@ -40,7 +42,7 @@ export async function autoRegister(opts = {}) {
   let mailbox;
   try {
     const rand = prefix || 'sw' + Math.random().toString(36).substring(2, 10);
-    mailbox = await mailProvider.createMailbox(rand, null, { signal });
+    mailbox = await mailProvider.createMailbox(rand, null, { signal, dispatcher });
     throwIfAborted(signal);
   } catch (err) {
     if (err.name === 'AbortError') throw err;
@@ -48,12 +50,13 @@ export async function autoRegister(opts = {}) {
   }
 
   const email = mailbox.email;
-  onProgress('mailbox-created', `邮箱已创建: ${email}`);
+  const via = proxyLabel ? ` · 代理 ${proxyLabel}` : '';
+  onProgress('mailbox-created', `邮箱已创建: ${email}${via}`);
 
   // Step 2: 发送 Stagewise OTP
   throwIfAborted(signal);
   onProgress('sending-otp', '正在发送验证码...');
-  const otpResult = await sendOtp(email, 'sign-in', { signal });
+  const otpResult = await sendOtp(email, 'sign-in', { signal, dispatcher });
   throwIfAborted(signal);
   if (!otpResult.success) {
     throw new Error(`发送 OTP 失败: ${otpResult.error}`);
@@ -69,6 +72,7 @@ export async function autoRegister(opts = {}) {
       maxWait,
       senderFilter: 'stagewise',
       signal,
+      dispatcher,
     });
     throwIfAborted(signal);
     code = result.code;
@@ -81,7 +85,7 @@ export async function autoRegister(opts = {}) {
   // Step 4: 验证 OTP
   throwIfAborted(signal);
   onProgress('verifying', '正在验证...');
-  const verifyResult = await verifyOtp(email, code, { signal });
+  const verifyResult = await verifyOtp(email, code, { signal, dispatcher });
   throwIfAborted(signal);
   if (!verifyResult.success) {
     throw new Error(`验证失败: ${verifyResult.error}`);

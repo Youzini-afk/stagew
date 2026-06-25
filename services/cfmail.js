@@ -108,6 +108,7 @@ async function requestJson(url, options, cfg, extraSecrets = []) {
   try {
     res = await fetch(url, options);
   } catch (err) {
+    if (err.name === 'AbortError') throw err;
     throw new Error(`CFMail 请求失败: ${sanitizeMessage(err.message, cfg, extraSecrets)}`);
   }
 
@@ -385,17 +386,19 @@ export function clearDomainCache() {
 /**
  * 检查 CFMail Worker 健康状态，同时尝试读取声明的 allowed_domains。
  */
-export async function checkHealth() {
+export async function checkHealth(opts = {}) {
   const cfg = getCfMailConfig();
   const base = cleanBaseUrl(cfg.apiBase);
   if (!base) {
     throw new Error('CFMail 未配置 api_base，请设置 CFMAIL_API_BASE 或在设置页保存 API Base');
   }
 
-  const data = await requestJson(buildUrl(base, cfg.healthEndpoint), {
+  const reqOpts = {
     method: 'GET',
     headers: { Accept: 'application/json' },
-  }, cfg);
+  };
+  if (opts.dispatcher) reqOpts.dispatcher = opts.dispatcher;
+  const data = await requestJson(buildUrl(base, cfg.healthEndpoint), reqOpts, cfg);
   assertSuccess(data, 'CFMail 健康检查失败', cfg);
 
   const domains = extractAllowedDomains(data);
@@ -408,7 +411,7 @@ export async function checkHealth() {
 /**
  * 获取域名列表：优先使用配置，其次从 Worker 根路径发现 config.allowed_domains。
  */
-export async function getDomains() {
+export async function getDomains(opts = {}) {
   const cfg = getCfMailConfig();
   if (cfg.domains && cfg.domains.length > 0) return cfg.domains;
 
@@ -421,7 +424,9 @@ export async function getDomains() {
     return cachedDiscovery.domains;
   }
 
-  const data = await requestJson(`${base}/`, { method: 'GET', headers: { Accept: 'application/json' } }, cfg);
+  const reqOpts = { method: 'GET', headers: { Accept: 'application/json' } };
+  if (opts.dispatcher) reqOpts.dispatcher = opts.dispatcher;
+  const data = await requestJson(`${base}/`, reqOpts, cfg);
   const domains = extractAllowedDomains(data);
   cachedDiscovery = { apiBase: base, domains };
   return domains;
@@ -431,7 +436,7 @@ export async function getDomains() {
  * 创建邮箱。返回 { email, token, provider: 'cfmail' }。
  */
 export async function createMailbox(prefix = null, domain = null, opts = {}) {
-  const { signal } = opts;
+  const { signal, dispatcher } = opts;
   throwIfAborted(signal);
   const cfg = getCfMailConfig();
   const base = cleanBaseUrl(cfg.apiBase);
@@ -442,7 +447,7 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
     throw new Error('CFMail 未配置 api_key，请设置 CFMAIL_API_KEY 或在设置页保存 API Key');
   }
 
-  const domains = await getDomains();
+  const domains = await getDomains(opts);
   const selectedDomain = domain || domains[0];
   if (!selectedDomain) {
     throw new Error('CFMail 未配置 domains，且无法从 Worker 发现 config.allowed_domains');
@@ -451,7 +456,7 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
   const body = { enablePrefix: false, domain: selectedDomain };
   if (prefix) body.name = prefix;
 
-  const data = await requestJson(buildUrl(base, cfg.createEndpoint), {
+  const reqOpts = {
     method: 'POST',
     signal,
     headers: {
@@ -460,7 +465,9 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
       ...authHeader(cfg.adminAuthHeader, cfg.adminAuthScheme, cfg.apiKey),
     },
     body: JSON.stringify(body),
-  }, cfg);
+  };
+  if (dispatcher) reqOpts.dispatcher = dispatcher;
+  const data = await requestJson(buildUrl(base, cfg.createEndpoint), reqOpts, cfg);
   throwIfAborted(signal);
   assertSuccess(data, '创建邮箱失败', cfg);
 
@@ -476,7 +483,7 @@ export async function createMailbox(prefix = null, domain = null, opts = {}) {
  * 获取邮件列表。CFMail 必须使用 createMailbox 返回的邮箱 token。
  */
 export async function getEmails(mailboxOrObject, limit = 20, opts = {}) {
-  const { signal } = opts;
+  const { signal, dispatcher } = opts;
   throwIfAborted(signal);
   const cfg = getCfMailConfig();
   const base = cleanBaseUrl(cfg.apiBase);
@@ -489,14 +496,16 @@ export async function getEmails(mailboxOrObject, limit = 20, opts = {}) {
     throw new Error('CFMail 读取邮件需要邮箱 token，请传入 createMailbox 返回的邮箱对象');
   }
 
-  const data = await requestJson(buildUrl(base, cfg.listEndpoint, { limit, offset: 0 }), {
+  const reqOpts = {
     method: 'GET',
     signal,
     headers: {
       Accept: 'application/json',
       ...authHeader(cfg.mailboxAuthHeader, cfg.mailboxAuthScheme, mailbox.token),
     },
-  }, cfg, [mailbox.token]);
+  };
+  if (dispatcher) reqOpts.dispatcher = dispatcher;
+  const data = await requestJson(buildUrl(base, cfg.listEndpoint, { limit, offset: 0 }), reqOpts, cfg, [mailbox.token]);
   assertSuccess(data, '获取邮件失败', cfg, [mailbox.token]);
 
   return extractMailArray(data).slice(0, limit).map(normalizeEmail);
@@ -506,7 +515,7 @@ export async function getEmails(mailboxOrObject, limit = 20, opts = {}) {
  * 轮询等待 Stagewise 验证码邮件。
  */
 export async function waitForVerificationCode(mailboxOrObject, opts = {}) {
-  const { maxWait = 60000, interval = 3000, senderFilter, signal } = opts;
+  const { maxWait = 60000, interval = 3000, senderFilter, signal, dispatcher } = opts;
   const mailbox = normalizeMailbox(mailboxOrObject);
   const deadline = Date.now() + maxWait;
   const seenIds = new Set();
@@ -515,7 +524,7 @@ export async function waitForVerificationCode(mailboxOrObject, opts = {}) {
   while (Date.now() < deadline) {
     throwIfAborted(signal);
     try {
-      const emails = await getEmails(mailboxOrObject, 20, { signal });
+      const emails = await getEmails(mailboxOrObject, 20, { signal, dispatcher });
       throwIfAborted(signal);
       for (const email of emails) {
         const seenKey = [

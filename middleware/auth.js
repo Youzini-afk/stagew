@@ -16,7 +16,7 @@ import { getNextToken } from '../services/account-pool.js';
  */
 
 // 不需要消费池 token 的路径（使用 req.originalUrl 因为挂载在 /v1）
-const SKIP_POOL_PATHS = ['/v1/pool', '/v1/models', '/v1/auth', '/v1/usage/pool', '/v1/settings', '/v1/register'];
+const SKIP_POOL_PATHS = ['/v1/pool', '/v1/models', '/v1/auth', '/v1/usage/pool', '/v1/settings', '/v1/register', '/v1/proxy-pool'];
 
 /**
  * 从请求头读取 Bearer token（去掉 "Bearer " 前缀），没有则返回 null。
