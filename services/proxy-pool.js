@@ -56,6 +56,7 @@ const NODE_FIELD_MAX = 1024;
 
 // dispatcher 缓存：direct 节点 id → { dispatcher, url }
 const dispatcherCache = new Map();
+let mihomoDispatcherCache = null;
 
 // 健康度：id → NodeHealth（仅 direct 节点用）
 const healthMap = new Map();
@@ -1146,7 +1147,11 @@ export async function acquireProxy() {
         throw new Error(`代理池存在高级协议节点，但 mihomo 不可启动：${reason}（fail closed）`);
       }
       const url = `http://127.0.0.1:${status.port}`;
-      const dispatcher = new ProxyAgent({ uri: url });
+      if (!mihomoDispatcherCache || mihomoDispatcherCache.url !== url) {
+        try { mihomoDispatcherCache?.dispatcher?.close?.(); } catch (e) { /* ignore */ }
+        mihomoDispatcherCache = { url, dispatcher: new ProxyAgent({ uri: url }) };
+      }
+      const dispatcher = mihomoDispatcherCache.dispatcher;
       return { url, dispatcher, label: 'mihomo:REG_AUTO', mode: 'mihomo' };
     }
 

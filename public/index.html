@@ -931,7 +931,8 @@
           </div>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px 16px;margin-top:10px;font-size:13px;">
             <div><span style="color:var(--md-on-surface-variant);">分组：</span><span id="proxy-mihomo-group" class="mono">—</span></div>
-            <div><span style="color:var(--md-on-surface-variant);">节点数：</span><span id="proxy-mihomo-nodecount" class="mono">—</span></div>
+            <div><span style="color:var(--md-on-surface-variant);">可用节点：</span><span id="proxy-mihomo-nodecount" class="mono">—</span></div>
+            <div><span style="color:var(--md-on-surface-variant);">已跳过：</span><span id="proxy-mihomo-skipped" class="mono">—</span></div>
             <div><span style="color:var(--md-on-surface-variant);">端口：</span><span id="proxy-mihomo-port" class="mono">—</span></div>
             <div><span style="color:var(--md-on-surface-variant);">控制器：</span><span id="proxy-mihomo-ctrl" class="mono">—</span></div>
           </div>
@@ -1644,6 +1645,7 @@
       }
       document.getElementById('proxy-mihomo-group').textContent = m.group || '—';
       document.getElementById('proxy-mihomo-nodecount').textContent = m.nodeCount ?? '—';
+      document.getElementById('proxy-mihomo-skipped').textContent = m.skippedNodeCount ?? 0;
       document.getElementById('proxy-mihomo-port').textContent = m.port ?? '—';
       document.getElementById('proxy-mihomo-ctrl').textContent = m.controllerPort ?? '—';
 
