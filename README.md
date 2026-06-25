@@ -70,7 +70,7 @@ npm run dev      # 开发模式（热重载）
 ### 部署步骤
 
 1. 在 Zeabur 控制台 → New Project → 通过 GitHub 仓库导入本项目
-2. Zeabur 检测到仓库根目录的 `Dockerfile` 后，会按 Docker 镜像构建部署
+2. Zeabur 检测到仓库根目录的 `Dockerfile` / `zbpack.json` 后，会按 Docker 镜像构建部署
 3. 平台自动注入 `PORT`，无需手动设置；容器已固定监听 `0.0.0.0`
 4. 挂载持久化 Volume（强烈建议，否则重启丢数据）：
    - Volumes → Add Volume → 挂载路径填 `/data`
@@ -83,6 +83,15 @@ npm run dev      # 开发模式（热重载）
 7. Health Check 配置：
    - **Path**：`/healthz`
    - 探活会实际 `SELECT 1`，数据库异常时返回 503，平台自动重启实例
+
+如果构建计划预览仍显示 `nodejs/npm`，在 Zeabur 配置里这样处理：
+
+| 项 | 值 |
+|----|----|
+| Root Directory | `/` |
+| 环境变量 | `ZBPACK_DOCKERFILE_PATH=Dockerfile` |
+
+不要勾选“使用 AI Dockerfile 生成器”，本仓库已经提供固定的 `Dockerfile`。
 
 ### 部署后访问
 
