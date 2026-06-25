@@ -873,61 +873,146 @@
 
     <!-- ═══ Tab: 代理池 ═══ -->
     <div class="tab-content" id="tab-proxy-pool">
-      <div class="card">
+
+      <!-- 设置 + Mihomo 状态 -->
+      <div class="card" style="margin-bottom:16px;">
         <div class="card-header">
           <div class="card-title">
             <span class="material-symbols-rounded">vpn_lock</span>
             代理池
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--md-on-surface-variant);">
-              <input type="checkbox" id="proxy-enabled" onchange="saveProxySettings()"> 启用
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--md-on-surface-variant);cursor:pointer;">
+              <input type="checkbox" id="proxy-enabled" onchange="saveProxySettings()"> 启用代理池
             </label>
-            <select id="proxy-strategy" onchange="saveProxySettings()" style="font-size:13px;padding:6px 8px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface-variant);border:none;">
-              <option value="round-robin">轮询</option>
-              <option value="random">随机</option>
-            </select>
             <button class="btn btn-tonal btn-sm" onclick="loadProxyPool()">
               <span class="material-symbols-rounded">refresh</span> 刷新
             </button>
           </div>
         </div>
-        <p style="font-size:13px;color:var(--md-on-surface-variant);margin-bottom:12px;">
-          自动注册时按策略选代理。仅支持 <code>http://</code>、<code>https://</code>、<code>socks5://</code>；不支持 ss/vmess/trojan。失败节点按指数退避冷却。
-          <br>降级代理：<span id="proxy-fallback" class="mono" style="color:var(--md-on-surface-variant);">—</span>
+        <p style="font-size:13px;color:var(--md-on-surface-variant);margin-bottom:12px;line-height:1.6;">
+          支持 <b>Clash/Mihomo YAML</b>、<b>base64 订阅</b>、<b>逐行 URI</b> 导入；高级协议（ss/vmess/vless/trojan/hysteria2/tuic 等）由内置 mihomo 聚合后供自动注册使用，http/socks 直连节点按策略轮换。失败节点按指数退避冷却。
         </p>
 
-        <!-- 添加节点 -->
-        <div class="form-row" style="margin-bottom:12px;">
+        <!-- 策略设置 -->
+        <div class="form-row" style="margin-bottom:12px;align-items:flex-end;">
+          <div class="form-field">
+            <label>direct 节点策略（仅影响 http/socks 直连）</label>
+            <select id="proxy-strategy" onchange="saveProxySettings()" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface);border:1px solid var(--md-outline);">
+              <option value="round-robin">轮询 round-robin</option>
+              <option value="random">随机 random</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>mihomo 组策略</label>
+            <select id="proxy-mihomo-strategy" onchange="saveProxySettings()" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface);border:1px solid var(--md-outline);">
+              <option value="fallback">fallback（自动切换）</option>
+              <option value="url-test">url-test（最低延迟）</option>
+              <option value="load-balance">load-balance（负载均衡）</option>
+            </select>
+          </div>
+          <div class="form-field" style="flex:1.2;">
+            <label>降级代理 PROXY_URL</label>
+            <div id="proxy-fallback" class="mono" style="font-size:13px;padding:8px 10px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface-variant);min-height:36px;word-break:break-all;">—</div>
+          </div>
+        </div>
+
+        <!-- Mihomo 状态卡 -->
+        <div id="proxy-mihomo-card" style="border:1px solid var(--md-outline);border-radius:var(--md-radius);padding:12px 14px;background:var(--md-bg);margin-bottom:12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span class="material-symbols-rounded" style="color:var(--md-primary);font-size:22px;">hub</span>
+              <b style="font-size:14px;">Mihomo 聚合</b>
+              <span id="proxy-mihomo-status" class="chip">—</span>
+            </div>
+            <button class="btn btn-tonal btn-sm" onclick="restartMihomoProxyPool()" id="btn-restart-mihomo">
+              <span class="material-symbols-rounded">restart_alt</span> 重启 mihomo
+            </button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px 16px;margin-top:10px;font-size:13px;">
+            <div><span style="color:var(--md-on-surface-variant);">分组：</span><span id="proxy-mihomo-group" class="mono">—</span></div>
+            <div><span style="color:var(--md-on-surface-variant);">节点数：</span><span id="proxy-mihomo-nodecount" class="mono">—</span></div>
+            <div><span style="color:var(--md-on-surface-variant);">端口：</span><span id="proxy-mihomo-port" class="mono">—</span></div>
+            <div><span style="color:var(--md-on-surface-variant);">控制器：</span><span id="proxy-mihomo-ctrl" class="mono">—</span></div>
+          </div>
+          <div id="proxy-mihomo-error" style="display:none;margin-top:8px;font-size:12px;color:var(--md-error);"></div>
+        </div>
+
+        <!-- Counts -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;">
+          <span class="chip chip-info">总计 <b id="proxy-count-total" style="margin-left:4px;">0</b></span>
+          <span class="chip chip-success">已启用 <b id="proxy-count-enabled" style="margin-left:4px;">0</b></span>
+          <span class="chip">直连 <b id="proxy-count-direct" style="margin-left:4px;">0</b></span>
+          <span class="chip chip-warning">聚合 <b id="proxy-count-advanced" style="margin-left:4px;">0</b></span>
+        </div>
+      </div>
+
+      <!-- 导入订阅/节点（主入口） -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">cloud_download</span>
+            导入订阅 / 节点
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--md-on-surface-variant);margin-bottom:10px;">
+          粘贴 Clash/Mihomo YAML、base64 订阅内容，或逐行节点 URI。后端会自动识别格式并去重。
+        </p>
+        <div class="form-field">
+          <textarea id="proxy-import-text" rows="9" placeholder="支持以下任意格式（可混合）：&#10;&#10;# Clash / Mihomo YAML&#10;proxies:&#10;  - {name: hk-01, type: ss, server: 1.2.3.4, port: 8388, cipher: aes-256-gcm, password: ...}&#10;  - {name: jp-vmess, type: vmess, server: ..., port: 443, uuid: ..., alterId: 0, cipher: auto}&#10;&#10;# base64 订阅（一整段）&#10;dm1lc3M6Ly9...&#10;&#10;# 逐行 URI&#10;ss://YWVzLTI1Ni1nY206cGFzcw@1.2.3.4:8388#hk-01&#10;vmess://eyJ2IjoiMiIsInBzIjo...&#10;vless://uuid@host:443?encryption=none&type=tcp&security=tls#us-01&#10;trojan://password@host:443#sg-01&#10;hysteria2://password@host:443?sni=example.com#hy2-01&#10;tuic://uuid:password@host:443?congestion_control=bbr#tuic-01&#10;http://user:pass@host:port&#10;socks5://host:1080" style="width:100%;font-family:'Roboto Mono',monospace;font-size:12.5px;padding:10px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface);border:1px solid var(--md-outline);line-height:1.5;"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn btn-filled btn-sm" onclick="importProxyNodes()" id="btn-import-proxy">
+            <span class="material-symbols-rounded">upload</span> 导入订阅/节点
+          </button>
+          <button class="btn btn-tonal btn-sm" onclick="document.getElementById('proxy-import-text').value=''">
+            <span class="material-symbols-rounded">clear</span> 清空
+          </button>
+          <span style="font-size:12px;color:var(--md-on-surface-variant);">导入后会自动按格式拆分并去重。</span>
+        </div>
+      </div>
+
+      <!-- 高级手动添加（可选） -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+          <div class="card-title" style="font-size:15px;color:var(--md-on-surface-variant);">
+            <span class="material-symbols-rounded" style="font-size:20px;">tune</span>
+            高级手动添加（可选）
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--md-on-surface-variant);margin-bottom:10px;">
+          适合临时补单个节点。批量场景请用上方的导入。
+        </p>
+        <div class="form-row" style="align-items:flex-end;">
           <div class="form-field" style="flex:2;">
-            <label>代理 URL（含凭证用 type=password 也可，列表仅显示 host:port）</label>
-            <input type="password" id="proxy-add-url" placeholder="http://user:pass@host:port 或 socks5://host:port">
+            <label>节点 URI（http/socks/ss/vmess/vless/trojan/hysteria2/hy2/tuic）</label>
+            <input type="password" id="proxy-add-url" placeholder="ss://... 或 vmess://... 或 http://user:pass@host:port">
           </div>
           <div class="form-field" style="flex:1;">
-            <label>名称（可选）</label>
+            <label>备注（可选）</label>
             <input type="text" id="proxy-add-name" placeholder="节点备注">
           </div>
-          <div class="form-field" style="flex:0 0 auto;align-self:flex-end;">
-            <button class="btn btn-filled btn-sm" onclick="addProxyNode()">
-              <span class="material-symbols-rounded">add</span> 添加
+          <div class="form-field" style="flex:0 0 auto;">
+            <button class="btn btn-tonal btn-sm" onclick="addProxyNode()">
+              <span class="material-symbols-rounded">add</span> 添加节点
             </button>
           </div>
         </div>
+      </div>
 
-        <!-- 批量导入 -->
-        <div class="form-field" style="margin-bottom:12px;">
-          <label>批量导入（一行一个 URL：http/https/socks5）</label>
-          <textarea id="proxy-import-text" rows="3" placeholder="http://host:port&#10;socks5://host:port" style="width:100%;font-family:monospace;font-size:13px;padding:8px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface);border:none;"></textarea>
-          <button class="btn btn-tonal btn-sm" style="margin-top:8px;" onclick="importProxyNodes()">
-            <span class="material-symbols-rounded">upload</span> 导入
-          </button>
+      <!-- 节点列表 -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="material-symbols-rounded">list_alt</span>
+            节点列表
+          </div>
         </div>
-
-        <!-- 节点列表 -->
         <div id="proxy-nodes-list">
           <div class="loading-container"><div class="spinner"></div>加载中...</div>
         </div>
       </div>
+
     </div>
 
     <!-- ═══ Tab: API 测试 ═══ -->
@@ -1525,7 +1610,19 @@
         const data = await res.json();
         document.getElementById('proxy-enabled').checked = !!data.enabled;
         document.getElementById('proxy-strategy').value = data.strategy || 'round-robin';
+        document.getElementById('proxy-mihomo-strategy').value = data.mihomoStrategy || 'fallback';
         document.getElementById('proxy-fallback').textContent = data.fallbackProxy || '无（直连）';
+
+        // counts
+        const c = data.counts || {};
+        document.getElementById('proxy-count-total').textContent = c.total ?? 0;
+        document.getElementById('proxy-count-enabled').textContent = c.enabled ?? 0;
+        document.getElementById('proxy-count-direct').textContent = c.direct ?? 0;
+        document.getElementById('proxy-count-advanced').textContent = c.advanced ?? 0;
+
+        // mihomo 状态卡
+        renderMihomoStatus(data.mihomo || {});
+
         renderProxyNodes(data.nodes || []);
       } catch (err) {
         document.getElementById('proxy-nodes-list').innerHTML =
@@ -1533,33 +1630,68 @@
       }
     }
 
+    function renderMihomoStatus(m) {
+      const statusEl = document.getElementById('proxy-mihomo-status');
+      if (!m.available) {
+        statusEl.className = 'chip chip-warning';
+        statusEl.textContent = '未启用';
+      } else if (m.running) {
+        statusEl.className = 'chip chip-success';
+        statusEl.innerHTML = '<span class="material-symbols-rounded" style="font-size:14px;">check_circle</span> 运行中';
+      } else {
+        statusEl.className = 'chip chip-error';
+        statusEl.innerHTML = '<span class="material-symbols-rounded" style="font-size:14px;">error</span> 已停止';
+      }
+      document.getElementById('proxy-mihomo-group').textContent = m.group || '—';
+      document.getElementById('proxy-mihomo-nodecount').textContent = m.nodeCount ?? '—';
+      document.getElementById('proxy-mihomo-port').textContent = m.port ?? '—';
+      document.getElementById('proxy-mihomo-ctrl').textContent = m.controllerPort ?? '—';
+
+      const errEl = document.getElementById('proxy-mihomo-error');
+      if (m.lastError) {
+        errEl.style.display = 'block';
+        errEl.textContent = '最近错误：' + m.lastError;
+      } else {
+        errEl.style.display = 'none';
+      }
+    }
+
     function renderProxyNodes(nodes) {
       const el = document.getElementById('proxy-nodes-list');
       if (!nodes || nodes.length === 0) {
-        el.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded">vpn_lock</span><h3>暂无代理节点</h3><p>添加 http/https/socks5 代理 URL</p></div>`;
+        el.innerHTML = `<div class="empty-state"><span class="material-symbols-rounded">vpn_lock</span><h3>暂无节点</h3><p>在上方导入订阅或手动添加一个节点</p></div>`;
         return;
       }
       let html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">';
-      html += '<thead><tr style="text-align:left;color:var(--md-on-surface-variant);border-bottom:1px solid rgba(255,255,255,0.1);">';
-      html += '<th style="padding:8px;">地址</th><th style="padding:8px;">名称</th><th style="padding:8px;">状态</th>';
-      html += '<th style="padding:8px;">成功/失败</th><th style="padding:8px;">延迟</th><th style="padding:8px;">操作</th></tr></thead><tbody>';
+      html += '<thead><tr style="text-align:left;color:var(--md-on-surface-variant);border-bottom:1px solid rgba(0,0,0,0.08);">';
+      html += '<th style="padding:8px;">类型</th><th style="padding:8px;">名称</th><th style="padding:8px;">执行</th>';
+      html += '<th style="padding:8px;">服务器</th><th style="padding:8px;">来源</th><th style="padding:8px;">状态</th>';
+      html += '<th style="padding:8px;">健康/延迟</th><th style="padding:8px;">操作</th></tr></thead><tbody>';
       for (const n of nodes) {
         const h = n.health || {};
         const statusChip = n.disabled
           ? '<span class="chip chip-error">禁用</span>'
           : h.coolingDown
-            ? '<span class="chip chip-error">冷却</span>'
+            ? '<span class="chip chip-warning">冷却</span>'
             : '<span class="chip chip-success">在线</span>';
+        const executor = n.executor === 'mihomo'
+          ? '<span class="chip chip-info">mihomo</span>'
+          : '<span class="chip">direct</span>';
+        const server = (n.maskedServer || n.host || '—') + (n.port != null ? ':' + n.port : '');
         const latency = h.lastSuccessAt ? (h.lastTestMs != null ? h.lastTestMs + 'ms' : '-') : '-';
-        html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">`;
-        html += `<td style="padding:8px;" class="mono">${esc(n.maskedUrl || (n.host + ':' + n.port))}</td>`;
+        const typeChip = `<span class="chip" style="text-transform:uppercase;font-size:11px;">${esc(n.type || 'http')}</span>`;
+        const testLabel = n.executor === 'mihomo' ? '聚合测试' : '测试';
+        html += `<tr style="border-bottom:1px solid rgba(0,0,0,0.05);">`;
+        html += `<td style="padding:8px;">${typeChip}</td>`;
         html += `<td style="padding:8px;">${esc(n.name || '')}</td>`;
+        html += `<td style="padding:8px;">${executor}</td>`;
+        html += `<td style="padding:8px;" class="mono">${esc(server)}</td>`;
+        html += `<td style="padding:8px;font-size:12px;color:var(--md-on-surface-variant);">${esc(n.source || 'manual')}</td>`;
         html += `<td style="padding:8px;">${statusChip}</td>`;
-        html += `<td style="padding:8px;">${h.successCount || 0}/${h.failCount || 0}</td>`;
-        html += `<td style="padding:8px;">${latency}</td>`;
+        html += `<td style="padding:8px;font-size:12px;">${h.successCount || 0}/${h.failCount || 0} · ${latency}</td>`;
         html += `<td style="padding:8px;"><div style="display:flex;gap:4px;flex-wrap:wrap;">`;
         html += `<button class="btn btn-tonal btn-sm" style="font-size:11px;padding:4px 8px;" onclick="toggleProxyNode('${esc(n.id)}', ${!n.disabled})">${n.disabled ? '启用' : '禁用'}</button>`;
-        html += `<button class="btn btn-tonal btn-sm" style="font-size:11px;padding:4px 8px;" onclick="testProxyNode('${esc(n.id)}')">测试</button>`;
+        html += `<button class="btn btn-tonal btn-sm" style="font-size:11px;padding:4px 8px;" onclick="testProxyNode('${esc(n.id)}')">${testLabel}</button>`;
         html += `<button class="btn btn-danger-tonal btn-sm" style="font-size:11px;padding:4px 8px;" onclick="deleteProxyNode('${esc(n.id)}')">删除</button>`;
         html += `</div></td></tr>`;
       }
@@ -1570,16 +1702,36 @@
     async function saveProxySettings() {
       const enabled = document.getElementById('proxy-enabled').checked;
       const strategy = document.getElementById('proxy-strategy').value;
+      const mihomoStrategy = document.getElementById('proxy-mihomo-strategy').value;
       try {
         await apiFetch('/v1/proxy-pool/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled, strategy })
+          body: JSON.stringify({ enabled, strategy, mihomoStrategy })
         });
         showSnackbar('代理池设置已保存', 'success');
       } catch (err) {
         showSnackbar('保存失败: ' + err.message, 'error');
         loadProxyPool();
+      }
+    }
+
+    async function restartMihomoProxyPool() {
+      const btn = document.getElementById('btn-restart-mihomo');
+      const old = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="material-symbols-rounded">progress_activity</span> 重启中...';
+      try {
+        const res = await apiFetch('/v1/proxy-pool/mihomo/restart', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error?.message || '重启失败');
+        showSnackbar('mihomo 正在重启', 'success');
+        setTimeout(loadProxyPool, 1500);
+      } catch (err) {
+        showSnackbar('重启失败: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = old;
       }
     }
 
@@ -1646,6 +1798,10 @@
 
     async function importProxyNodes() {
       const text = document.getElementById('proxy-import-text').value;
+      if (!text || !text.trim()) { showSnackbar('请粘贴订阅内容或节点 URI', 'error'); return; }
+      const btn = document.getElementById('btn-import-proxy');
+      const oldHtml = btn?.innerHTML;
+      if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-rounded">progress_activity</span> 导入中...'; }
       try {
         const res = await apiFetch('/v1/proxy-pool/import', {
           method: 'POST',
@@ -1655,10 +1811,12 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || '导入失败');
         document.getElementById('proxy-import-text').value = '';
-        showSnackbar(`导入完成：新增 ${data.added}，跳过 ${data.skipped}`, 'success');
+        showSnackbar(`导入完成：新增 ${data.added}，跳过 ${data.skipped}，无效 ${data.invalid || 0}，共 ${data.total} 条`, 'success');
         loadProxyPool();
       } catch (err) {
         showSnackbar('导入失败: ' + err.message, 'error');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
       }
     }
 

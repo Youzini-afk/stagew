@@ -51,9 +51,24 @@ export const config = {
   },
 
   // 代理池（自动注册时按轮询/随机选代理，失败冷却指数退避）
-  // 仅支持 http://、https://、socks5://；不支持 ss/vmess/trojan
+  // 支持 http://、https://、socks5:// 直连执行；
+  // ss/vmess/vless/trojan/hysteria2/tuic 等高级协议经 mihomo 子进程聚合后使用。
   proxyPoolEnabled: process.env.PROXY_POOL_ENABLED === 'true',
   proxyPoolUrls: process.env.PROXY_POOL_URLS || '',
   proxyUrl: process.env.PROXY_URL || '',
   proxyPoolStrategy: process.env.PROXY_POOL_STRATEGY || 'round-robin',
+
+  // mihomo 子进程管理（用于 ss/vmess/vless/trojan/hysteria2/tuic 等高级协议聚合）
+  // MIHOMO_ENABLED：池中存在高级节点时是否启用 mihomo；默认 true，关闭后遇高级节点会 fail closed。
+  mihomoEnabled: process.env.MIHOMO_ENABLED !== 'false',
+  // MIHOMO_PATH：mihomo 二进制路径；默认在 PATH 中查找 mihomo
+  mihomoPath: process.env.MIHOMO_PATH || 'mihomo',
+  // MIHOMO_MIXED_PORT：本地混合代理端口（仅 127.0.0.1）
+  mihomoMixedPort: parsePort(process.env.MIHOMO_MIXED_PORT, 7890),
+  // MIHOMO_CONTROLLER_PORT：mihomo external-controller 端口（仅 127.0.0.1）
+  mihomoControllerPort: parsePort(process.env.MIHOMO_CONTROLLER_PORT, 9090),
+  // MIHOMO_GROUP_STRATEGY：mihomo REG_AUTO 组策略，可选 fallback / url-test / load-balance
+  mihomoGroupStrategy: (process.env.MIHOMO_GROUP_STRATEGY || 'fallback').trim().toLowerCase(),
+  // MIHOMO_TEST_URL：mihomo url-test/fallback 探活 URL
+  mihomoTestUrl: process.env.MIHOMO_TEST_URL || 'https://www.gstatic.com/generate_204',
 };

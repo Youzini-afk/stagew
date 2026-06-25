@@ -97,6 +97,8 @@ Zeabur 操作：
 
 > 如果 GHCR 包是 private，Zeabur 拉取会需要镜像凭证。建议在 GitHub 仓库 Packages 页面把 `stagew` package visibility 改为 Public，或在 Zeabur 配置 GHCR 账号/Token。
 
+> 镜像已内置固定版本 mihomo 二进制（`/usr/local/bin/mihomo`），支持 ss/vmess/vless/trojan/hysteria2/tuic 等高级协议订阅导入。Zeabur 拉 GHCR 镜像后即可直接在 WebUI 代理池 tab 粘贴 Clash YAML 或 base64 订阅文本导入，无需额外安装。
+
 ### 备选：Zeabur 从源码构建
 
 1. 在 Zeabur 控制台 → New Project → 通过 GitHub 仓库导入本项目
@@ -302,21 +304,28 @@ WebUI 自动注册开始后可点击“停止”，后端会通过 `/v1/register
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/v1/proxy-pool` | 代理池概览（启用状态、策略、节点列表，URL 脱敏只显示 host:port） |
-| POST | `/v1/proxy-pool/nodes` | 添加节点 `body:{url, name?}` |
+| GET | `/v1/proxy-pool` | 代理池概览（启用状态、策略、mihomo 状态、节点列表，全部脱敏） |
+| POST | `/v1/proxy-pool/nodes` | 添加节点 `body:{url, name?}`（支持 ss/vmess/vless/trojan/hy2/tuic URI） |
 | DELETE | `/v1/proxy-pool/nodes/:id` | 删除节点 |
 | POST | `/v1/proxy-pool/nodes/:id/toggle` | 启停 `body:{disabled}` |
-| POST | `/v1/proxy-pool/nodes/:id/test` | 测试节点连通性（10s 超时） |
-| POST | `/v1/proxy-pool/import` | 批量导入 `body:{text}`（按行/逗号拆分） |
-| PUT | `/v1/proxy-pool/settings` | 更新设置 `body:{enabled?, strategy?}` |
+| POST | `/v1/proxy-pool/nodes/:id/test` | 测试节点连通性（direct 节点直接测；advanced 节点走 mihomo 聚合测） |
+| POST | `/v1/proxy-pool/import` | 订阅/批量导入 `body:{text, subscriptionId?}`（Clash YAML / base64 / plain URI list） |
+| PUT | `/v1/proxy-pool/settings` | 更新设置 `body:{enabled?, strategy?, mihomoStrategy?}` |
+| POST | `/v1/proxy-pool/mihomo/restart` | 强制重启 mihomo 子进程（不返回 secret/config） |
 
 代理池在**自动注册**时生效：每次注册开始时按策略（`round-robin` 轮询 / `random` 随机）选一个未禁用且未冷却的代理，把 dispatcher 注入到创建邮箱、发送 OTP、收取验证码、验证 OTP 的每一步 fetch。注册成功/失败后调用 `recordProxyResult` 更新健康度；失败节点按指数退避冷却（30s 起，2^(n-1) 倍增，上限 30 分钟）。
 
-- 仅支持 `http://`、`https://`、`socks5://` 代理 URL（基于 undici `ProxyAgent` / `Socks5ProxyAgent`，纯 JS 无 native 编译）。
-- **不支持** ss/vmess/trojan（需 mihomo 等本地客户端转为 socks5 后再用本代理池）。
+- **直连协议**（`http://`、`https://`、`socks5://`）：基于 undici `ProxyAgent` / `Socks5ProxyAgent`，纯 JS 无 native 编译；按节点健康度轮询/冷却。
+- **高级协议**（`ss`、`vmess`、`vless`、`trojan`、`hysteria2/hy2`、`tuic`）：由本地 mihomo 子进程聚合成一个 `http://127.0.0.1:<mixed-port>` 入口，自动注册统一走该入口，由 mihomo 组（`REG_AUTO`）按 `fallback`/`url-test`/`load-balance` 策略选节点。**高级协议节点不按单个节点冷却**（Node 无法知道 mihomo 实际用了哪个节点）。
+- **订阅导入**（推荐用法）：支持 Clash/Mihomo YAML（仅读取顶层 `proxies` 数组，忽略 `rules`/`proxy-groups`/`dns`/`mixed-port`/`external-controller`/`proxy-providers` 等所有运行时配置）、base64 URI list（容忍 padding/URL-safe/换行）、plain URI list。bad 条目跳过不中断整次导入，返回 `{ added, skipped, invalid, total }`。
+- **支持协议**：`http`、`https`、`socks`、`socks5`、`ss`、`vmess`、`vless`、`trojan`、`hysteria2`、`hy2`、`tuic`。
+- 节点 id 用 sanitized proxy object 的 sha256 hash（不是 `host:port`），避免不同凭证共享同一 host:port 时冲突。
 - 代理池禁用或池空时，降级到 `PROXY_URL`；两者都无则直连。
-- 节点 URL 含凭证会存入 SQLite（脱敏只在展示/日志层进行，存储是必要的）。
-- 日志只显示 `host:port`，不显示用户名密码。
+- **Fail closed**：当池中存在高级协议节点但 mihomo 不可用（二进制缺失/启动失败/`MIHOMO_ENABLED=false`）时，自动注册会**直接报错**，绝不静默降级到直连。
+- **安全**：API/WebUI 永不返回 `proxy` 对象、`rawUri`、subscription token、uuid/password、mihomo controller secret 或生成的 config 内容；日志只输出 masked host 或 `mihomo:REG_AUTO`；节点列表只返回脱敏字段（`id`/`type`/`name`/`executor`/`maskedServer`/`port`/`source`/`disabled`/`createdAt`/`health`）。
+- 导入限制：文本 ≤ 2MB，节点数 ≤ 2000，名字/字段长度裁剪。
+
+> Docker 镜像已内置固定版本 mihomo 二进制（`/usr/local/bin/mihomo`），开箱即用。本地源码部署若需高级协议，请自行安装 [mihomo](https://github.com/MetaCubeX/mihomo/releases) 并设置 `MIHOMO_PATH` 指向二进制路径。
 
 ### 设置
 
@@ -374,6 +383,8 @@ stagewise-2api/
 │   ├── mail-provider.js             # 临时邮箱 Provider 统一适配层
 │   ├── models.js                    # 模型列表（44 个）
 │   ├── proxy.js                     # 请求转发核心（含 system prompt 注入）
+│   ├── proxy-pool.js                # 代理池（多协议订阅导入 + mihomo 聚合）
+│   ├── mihomo-manager.js            # mihomo 子进程管理（高级协议聚合）
 │   ├── settings.js                  # 设置持久化（SQLite）
 │   ├── stagewise-system-prompt.js   # 验证 prompt（5515 字符）
 │   └── usage.js                     # 用量查询 + 5 分钟缓存
@@ -419,6 +430,12 @@ stagewise-2api/
 | `PROXY_POOL_URLS` | 代理 URL 列表（逗号或换行分隔，DB 无节点时种子导入；示例占位 `http://host:port,socks5://host:port`） | 空 |
 | `PROXY_POOL_STRATEGY` | 代理池策略：`round-robin` 或 `random` | `round-robin` |
 | `PROXY_URL` | 降级代理（代理池关闭或空时使用；可为空即直连） | 空 |
+| `MIHOMO_ENABLED` | 是否启用 mihomo 子进程（高级协议聚合）；设 false 时遇高级节点 fail closed | `true` |
+| `MIHOMO_PATH` | mihomo 二进制路径（Docker 镜像默认 `/usr/local/bin/mihomo`） | `mihomo` |
+| `MIHOMO_MIXED_PORT` | mihomo 本地混合代理端口（仅 127.0.0.1） | `7890` |
+| `MIHOMO_CONTROLLER_PORT` | mihomo external-controller 端口（仅 127.0.0.1；secret 自动生成不返回） | `9090` |
+| `MIHOMO_GROUP_STRATEGY` | mihomo REG_AUTO 组策略：`fallback` / `url-test` / `load-balance` | `fallback` |
+| `MIHOMO_TEST_URL` | mihomo url-test/fallback 探活 URL | `https://www.gstatic.com/generate_204` |
 
 > 数据库路径解析顺序：`DB_PATH` > `DATA_DIR/accounts.db` > 项目内 `../data/accounts.db`。父目录不存在时会自动 `mkdirSync(..., { recursive: true })`。
 

@@ -95,8 +95,12 @@ const server = app.listen(config.port, HOST, () => {
 });
 
 // 优雅关闭
-function gracefulShutdown() {
+async function gracefulShutdown() {
   console.log('\n正在关闭服务...');
+  try {
+    const mihomo = await import('../services/mihomo-manager.js');
+    mihomo.cleanup();
+  } catch (e) { /* ignore */ }
   server.close(() => {
     closeDb();
     process.exit(0);

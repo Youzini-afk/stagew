@@ -129,12 +129,13 @@ router.post('/auto', async (req, res) => {
   appendJobLog(job, 'start', '🚀 开始注册', 0);
   job.progress.started = 1;
 
-  const proxyStart = Date.now();
-  const acquired = proxyPool.acquireProxy();
-  const proxyLabel = acquired ? proxyPool.maskProxyUrl(acquired.url) : '直连';
-  appendJobLog(job, 'proxy', `代理: ${proxyLabel}`, 0);
-
+  let proxyStart = Date.now();
+  let acquired = null;
+  let proxyLabel = '直连';
   try {
+    acquired = await proxyPool.acquireProxy();
+    proxyLabel = acquired ? (acquired.label || proxyPool.maskProxyUrl(acquired.url)) : '直连';
+    appendJobLog(job, 'proxy', `代理: ${proxyLabel}`, 0);
     throwIfAborted(job.controller.signal);
     const result = await autoRegister({
       prefix,
@@ -146,7 +147,9 @@ router.post('/auto', async (req, res) => {
       onProgress: (step, message) => appendJobLog(job, step, message, 0),
     });
 
-    if (acquired) proxyPool.recordProxyResult(acquired.url, true, Date.now() - proxyStart);
+    if (acquired && acquired.mode !== 'mihomo') {
+      proxyPool.recordProxyResult(acquired.mode === 'direct' ? acquired.nodeId : acquired.url, true, Date.now() - proxyStart);
+    }
     job.results[0] = { index: 0, success: true, email: result.email, provider: result.provider };
     job.progress.success = 1;
     job.progress.completed = 1;
@@ -155,7 +158,9 @@ router.post('/auto', async (req, res) => {
     finishRegisterJob(job, 'completed', summary);
     res.json({ success: true, email: result.email, token: result.token, provider: result.provider, jobId: job.id, logs: job.logs });
   } catch (err) {
-    if (acquired) proxyPool.recordProxyResult(acquired.url, false, Date.now() - proxyStart, err.message);
+    if (acquired && acquired.mode !== 'mihomo') {
+      proxyPool.recordProxyResult(acquired.mode === 'direct' ? acquired.nodeId : acquired.url, false, Date.now() - proxyStart, err.message);
+    }
     if (isAbortError(err) || job.controller.signal.aborted) {
       job.results[0] = { index: 0, success: false, cancelled: true, error: '注册已停止' };
       job.progress.cancelled = 1;
@@ -215,9 +220,11 @@ router.post('/batch', async (req, res) => {
 
   async function runOne(index) {
     const proxyStart = Date.now();
-    const acquired = proxyPool.acquireProxy();
-    const proxyLabel = acquired ? proxyPool.maskProxyUrl(acquired.url) : '直连';
+    let acquired = null;
+    let proxyLabel = '直连';
     try {
+      acquired = await proxyPool.acquireProxy();
+      proxyLabel = acquired ? (acquired.label || proxyPool.maskProxyUrl(acquired.url)) : '直连';
       throwIfAborted(job.controller.signal);
       appendJobLog(job, 'account-queued', `账号 #${index + 1} 等待启动`, index);
       await waitForStartSlot();
@@ -233,13 +240,17 @@ router.post('/batch', async (req, res) => {
         proxyLabel,
         onProgress: (step, message) => appendJobLog(job, step, message, index),
       });
-      if (acquired) proxyPool.recordProxyResult(acquired.url, true, Date.now() - proxyStart);
+      if (acquired && acquired.mode !== 'mihomo') {
+        proxyPool.recordProxyResult(acquired.mode === 'direct' ? acquired.nodeId : acquired.url, true, Date.now() - proxyStart);
+      }
       job.results[index] = { index, success: true, email: result.email, provider: result.provider };
       job.progress.success++;
       job.progress.completed++;
       appendJobLog(job, 'account-done', `✅ #${index + 1} 成功: ${result.email}`, index);
     } catch (err) {
-      if (acquired) proxyPool.recordProxyResult(acquired.url, false, Date.now() - proxyStart, err.message);
+      if (acquired && acquired.mode !== 'mihomo') {
+        proxyPool.recordProxyResult(acquired.mode === 'direct' ? acquired.nodeId : acquired.url, false, Date.now() - proxyStart, err.message);
+      }
       const cancelled = isAbortError(err) || job.controller.signal.aborted;
       job.results[index] = {
         index,
