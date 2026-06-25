@@ -65,9 +65,39 @@ npm run dev      # 开发模式（热重载）
 
 ## ☁️ Zeabur 部署
 
-适配已就绪：仓库已内置 `Dockerfile`，Zeabur 会按 Docker 构建；服务默认监听 `0.0.0.0`，数据库路径支持 `DB_PATH` / `DATA_DIR` 注入，提供 `/healthz` 探活端点，并内置公网管理鉴权。
+适配已就绪：仓库已内置 `Dockerfile`，并提供 GitHub Actions 自动构建镜像到 GHCR。服务默认监听 `0.0.0.0`，数据库路径支持 `DB_PATH` / `DATA_DIR` 注入，提供 `/healthz` 探活端点，并内置公网管理鉴权。
 
-### 部署步骤
+### 推荐：Zeabur 直接拉 GHCR 镜像
+
+如果 Zeabur 源码构建触发风控，推荐让 GitHub Actions 构建镜像，然后 Zeabur 只拉镜像运行。
+
+镜像地址：
+
+```text
+ghcr.io/youzini-afk/stagewise-2api:latest
+```
+
+GitHub Actions 会在以下情况推送镜像：
+
+- push 到 `main`：推送 `latest` 和 `sha-<commit>` 标签
+- push `v*` tag：推送对应版本标签
+- 手动运行 workflow：Actions → Build Docker image → Run workflow
+
+Zeabur 操作：
+
+1. Zeabur → New Service → Docker Image / Container Image
+2. Image 填：`ghcr.io/youzini-afk/stagewise-2api:latest`
+3. 挂载 Volume：`/data`
+4. 设置环境变量：
+   - `DB_PATH=/data/accounts.db`
+   - `ADMIN_TOKEN=一串足够长的随机密码`
+   - `PROXY_API_KEY=给 OpenAI 客户端使用的 API Key`
+   - `MAIL_PROVIDER=`、`MAIL_URL=`、`MAIL_TOKEN=` 或 `CFMAIL_*`（按需）
+5. Health Check Path：`/healthz`
+
+> 如果 GHCR 包是 private，Zeabur 拉取会需要镜像凭证。建议在 GitHub 仓库 Packages 页面把 `stagewise-2api` package visibility 改为 Public，或在 Zeabur 配置 GHCR 账号/Token。
+
+### 备选：Zeabur 从源码构建
 
 1. 在 Zeabur 控制台 → New Project → 通过 GitHub 仓库导入本项目
 2. Zeabur 检测到仓库根目录的 `Dockerfile` / `zbpack.json` 后，会按 Docker 镜像构建部署
