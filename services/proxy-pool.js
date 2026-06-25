@@ -37,7 +37,8 @@ const DIRECT_TYPES = new Set(['http', 'socks5', 'socks']);
 const SUPPORTED_TYPES = new Set([
   'http', 'socks5', 'socks',
   'ss', 'vmess', 'vless', 'trojan',
-  'hysteria2', 'hy2', 'tuic',
+  'hysteria', 'hysteria2', 'hy2', 'tuic',
+  'snell', 'wireguard', 'anytls', 'mieru',
 ]);
 
 const COOLDOWN_CAP_MS = 30 * 60 * 1000; // 最大冷却 30 分钟
@@ -108,6 +109,48 @@ function safeStr(value) {
   return String(value);
 }
 
+function normalizeProxyType(type) {
+  const t = String(type || '').toLowerCase().trim();
+  if (t === 'hy2') return 'hysteria2';
+  if (t === 'socks') return 'socks5';
+  return t;
+}
+
+function cloneForStorage(value, depth = 0) {
+  if (depth > 20) return undefined;
+  if (value == null) return value;
+  if (typeof value === 'string') return truncate(value, NODE_FIELD_MAX);
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.slice(0, 256).map(v => cloneForStorage(v, depth + 1)).filter(v => v !== undefined);
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
+      const cloned = cloneForStorage(v, depth + 1);
+      if (cloned !== undefined) out[truncate(String(k), 128)] = cloned;
+    }
+    return out;
+  }
+  return undefined;
+}
+
+function normalizeYamlProxyObject(raw) {
+  // Clash/Mihomo YAML 已经是 mihomo 原生 proxy object。
+  // 不再按 type 重建字段，避免把订阅站给 mihomo 的原始兼容字段改坏。
+  if (!raw || typeof raw !== 'object') return null;
+  const cloned = cloneForStorage(raw);
+  const type = normalizeProxyType(cloned.type);
+  if (!SUPPORTED_TYPES.has(type)) return null;
+  const server = String(cloned.server || '').trim();
+  const port = Number(cloned.port);
+  if (!server || !Number.isFinite(port) || port <= 0 || port > 65535) return null;
+  cloned.type = type;
+  cloned.server = server;
+  cloned.port = port;
+  cloned.name = truncate(safeStr(cloned.name || server), NODE_NAME_MAX);
+  return cloned;
+}
+
 /* ─── 节点 ID：sanitized proxy object 的 sha256 ─────────── */
 
 function canonicalizeProxy(proxy) {
@@ -147,6 +190,19 @@ function readNodesRaw() {
 
 function writeNodesRaw(nodes) {
   setSetting(SETTINGS_KEY_NODES, JSON.stringify(nodes));
+}
+
+export function clearProxyNodes() {
+  bootstrapFromEnv();
+  writeNodesRaw([]);
+  for (const cached of dispatcherCache.values()) {
+    try { cached.dispatcher?.close?.(); } catch (e) { /* ignore */ }
+  }
+  dispatcherCache.clear();
+  try { mihomoDispatcherCache?.dispatcher?.close?.(); } catch (e) { /* ignore */ }
+  mihomoDispatcherCache = null;
+  healthMap.clear();
+  rrCursor = 0;
 }
 
 /* ─── 旧数据迁移：旧 {id,url,name,...} 节点 → 新模型 ─────── */
@@ -879,7 +935,7 @@ function parseProxiesFromText(text) {
       if (doc && Array.isArray(doc.proxies)) {
         total = doc.proxies.length;
         for (const p of doc.proxies) {
-          const cleaned = sanitizeProxyObject(p);
+          const cleaned = normalizeYamlProxyObject(p);
           if (!cleaned) { invalid++; continue; }
           out.push({ proxy: cleaned, rawUri: undefined });
         }

@@ -317,8 +317,9 @@ WebUI 自动注册开始后可点击“停止”，后端会通过 `/v1/register
 
 - **直连协议**（`http://`、`https://`、`socks5://`）：基于 undici `ProxyAgent` / `Socks5ProxyAgent`，纯 JS 无 native 编译；按节点健康度轮询/冷却。
 - **高级协议**（`ss`、`vmess`、`vless`、`trojan`、`hysteria2/hy2`、`tuic`）：由本地 mihomo 子进程聚合成一个 `http://127.0.0.1:<mixed-port>` 入口，自动注册统一走该入口，由 mihomo 组（`REG_AUTO`）按 `fallback`/`url-test`/`load-balance` 策略选节点。**高级协议节点不按单个节点冷却**（Node 无法知道 mihomo 实际用了哪个节点）。
-- **订阅导入**（推荐用法）：支持 Clash/Mihomo YAML（仅读取顶层 `proxies` 数组，忽略 `rules`/`proxy-groups`/`dns`/`mixed-port`/`external-controller`/`proxy-providers` 等所有运行时配置）、base64 URI list（容忍 padding/URL-safe/换行）、plain URI list。bad 条目跳过不中断整次导入，返回 `{ added, skipped, invalid, total }`。
-- **支持协议**：`http`、`https`、`socks`、`socks5`、`ss`、`vmess`、`vless`、`trojan`、`hysteria2`、`hy2`、`tuic`。
+- **订阅导入**（推荐用法）：支持 Clash/Mihomo YAML（仅读取顶层 `proxies` 数组，忽略 `rules`/`proxy-groups`/`dns`/`mixed-port`/`external-controller`/`proxy-providers` 等运行时配置）。YAML 的单个 proxy object 会尽量原样保留给 mihomo，不再二次按字段白名单重建；base64 URI list / plain URI list 才转换为 mihomo proxy object。bad 条目跳过不中断整次导入，返回 `{ added, skipped, invalid, total }`。
+- **支持协议**：`http`、`https`、`socks`、`socks5`、`ss`、`vmess`、`vless`、`trojan`、`hysteria`、`hysteria2`、`hy2`、`tuic`、`snell`、`wireguard`、`anytls`、`mieru`（最终以当前镜像内置 mihomo 版本支持为准）。
+- 如果之前用旧版本导入过订阅，建议在 WebUI 代理池页先点“清空已导入节点”，再重新粘贴订阅导入；旧版本已保存的节点可能已经被二次清洗过，无法自动恢复原始字段。
 - 节点 id 用 sanitized proxy object 的 sha256 hash（不是 `host:port`），避免不同凭证共享同一 host:port 时冲突。
 - 代理池禁用或池空时，降级到 `PROXY_URL`；两者都无则直连。
 - **Fail closed**：当池中存在高级协议节点但 mihomo 不可用（二进制缺失/启动失败/`MIHOMO_ENABLED=false`）时，自动注册会**直接报错**，绝不静默降级到直连。

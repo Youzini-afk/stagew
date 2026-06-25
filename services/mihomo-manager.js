@@ -71,12 +71,7 @@ function sanitizeProxyForConfig(proxy) {
   // mihomo 需要每个 proxy 有唯一 name；用 server+port+随机后缀保证
   if (!proxy || !proxy.type) return null;
   const name = proxy.name || `${proxy.type}-${proxy.server || 'unknown'}-${proxy.port || 0}`;
-  const p = { ...proxy, name };
-  // URI 兼容解析时保留过 host/path 作为中间字段；mihomo 真正需要的是 ws-opts/grpc-opts。
-  // 避免把非标准顶层字段带入最终配置，降低订阅兼容风险。
-  delete p.host;
-  delete p.path;
-  return p;
+  return { ...proxy, name };
 }
 
 function uniqueNames(proxies) {

@@ -71,6 +71,18 @@ router.delete('/nodes/:id', (req, res) => {
 });
 
 /**
+ * DELETE /v1/proxy-pool/nodes — 清空全部节点（重新按原始订阅导入时使用）
+ */
+router.delete('/nodes', (req, res) => {
+  try {
+    proxyPool.clearProxyNodes();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: { message: err.message } });
+  }
+});
+
+/**
  * POST /v1/proxy-pool/nodes/:id/toggle — 启停节点
  * body: { disabled }
  */

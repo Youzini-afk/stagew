@@ -957,7 +957,7 @@
           </div>
         </div>
         <p style="font-size:13px;color:var(--md-on-surface-variant);margin-bottom:10px;">
-          粘贴 Clash/Mihomo YAML、base64 订阅内容，或逐行节点 URI。后端会自动识别格式并去重。
+          粘贴 Clash/Mihomo YAML、base64 订阅内容，或逐行节点 URI。YAML 节点会尽量保留原始 mihomo 字段，只做去重和脱敏展示。
         </p>
         <div class="form-field">
           <textarea id="proxy-import-text" rows="9" placeholder="支持以下任意格式（可混合）：&#10;&#10;# Clash / Mihomo YAML&#10;proxies:&#10;  - {name: hk-01, type: ss, server: 1.2.3.4, port: 8388, cipher: aes-256-gcm, password: ...}&#10;  - {name: jp-vmess, type: vmess, server: ..., port: 443, uuid: ..., alterId: 0, cipher: auto}&#10;&#10;# base64 订阅（一整段）&#10;dm1lc3M6Ly9...&#10;&#10;# 逐行 URI&#10;ss://YWVzLTI1Ni1nY206cGFzcw@1.2.3.4:8388#hk-01&#10;vmess://eyJ2IjoiMiIsInBzIjo...&#10;vless://uuid@host:443?encryption=none&type=tcp&security=tls#us-01&#10;trojan://password@host:443#sg-01&#10;hysteria2://password@host:443?sni=example.com#hy2-01&#10;tuic://uuid:password@host:443?congestion_control=bbr#tuic-01&#10;http://user:pass@host:port&#10;socks5://host:1080" style="width:100%;font-family:'Roboto Mono',monospace;font-size:12.5px;padding:10px;border-radius:8px;background:var(--md-surface-variant);color:var(--md-on-surface);border:1px solid var(--md-outline);line-height:1.5;"></textarea>
@@ -968,6 +968,9 @@
           </button>
           <button class="btn btn-tonal btn-sm" onclick="document.getElementById('proxy-import-text').value=''">
             <span class="material-symbols-rounded">clear</span> 清空
+          </button>
+          <button class="btn btn-outlined btn-sm" onclick="clearProxyNodes()">
+            <span class="material-symbols-rounded">delete_sweep</span> 清空已导入节点
           </button>
           <span style="font-size:12px;color:var(--md-on-surface-variant);">导入后会自动按格式拆分并去重。</span>
         </div>
@@ -1766,6 +1769,17 @@
         loadProxyPool();
       } catch (err) {
         showSnackbar('删除失败: ' + err.message, 'error');
+      }
+    }
+
+    async function clearProxyNodes() {
+      if (!confirm('清空全部代理节点？清空后需要重新导入订阅。')) return;
+      try {
+        await apiFetch('/v1/proxy-pool/nodes', { method: 'DELETE' });
+        showSnackbar('已清空代理节点，请重新导入订阅', 'success');
+        loadProxyPool();
+      } catch (err) {
+        showSnackbar('清空失败: ' + err.message, 'error');
       }
     }
 
