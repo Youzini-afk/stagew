@@ -41,10 +41,12 @@ function extractErrorMessage(text) {
  * @param {string} type - 验证类型: 'sign-in' | 'email-verification' | 'forget-password' | 'change-email'
  * @returns {Promise<{success: boolean, error?: string}>}
  */
-export async function sendOtp(email, type = 'sign-in') {
+export async function sendOtp(email, type = 'sign-in', opts = {}) {
+  const { signal } = opts;
   try {
     const response = await fetch(`${AUTH_BASE}/email-otp/send-verification-otp`, {
       method: 'POST',
+      signal,
       headers: {
         'Content-Type': 'application/json',
         Origin: 'https://console.stagewise.io',
@@ -75,6 +77,7 @@ export async function sendOtp(email, type = 'sign-in') {
 
     return { success: true };
   } catch (err) {
+    if (err.name === 'AbortError') throw err;
     return { success: false, error: err.message };
   }
 }
@@ -86,10 +89,12 @@ export async function sendOtp(email, type = 'sign-in') {
  * @param {string} code - 6 位验证码
  * @returns {Promise<{success: boolean, token?: string, error?: string}>}
  */
-export async function verifyOtp(email, code) {
+export async function verifyOtp(email, code, opts = {}) {
+  const { signal } = opts;
   try {
     const response = await fetch(`${AUTH_BASE}/sign-in/email-otp`, {
       method: 'POST',
+      signal,
       headers: {
         'Content-Type': 'application/json',
         Origin: 'https://console.stagewise.io',
@@ -115,6 +120,7 @@ export async function verifyOtp(email, code) {
 
     return { success: true, token };
   } catch (err) {
+    if (err.name === 'AbortError') throw err;
     return { success: false, error: err.message };
   }
 }

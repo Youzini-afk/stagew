@@ -245,11 +245,15 @@ print(response.choices[0].message.content)
 |------|------|------|
 | POST | `/v1/register/auto` | 注册单个账号（body: `{prefix?, maxWait?}`） |
 | POST | `/v1/register/batch` | 批量注册（body: `{count: 100, concurrency?: 1, delayMs?: 3000, maxWait?: 60000}`，count 上限 1000） |
+| POST | `/v1/register/stop` | 停止当前自动注册任务 |
+| GET | `/v1/register/status` | 查看当前或最近一次自动注册任务状态 |
 | GET | `/v1/register/domains` | 获取当前 Provider 与可用邮箱域名（返回 `{ provider, domains }`） |
 
 **流程：** 创建临时邮箱 → 发送 Stagewise OTP → 轮询收件箱 → 获取验证码 → 完成验证 → 自动加入账号池
 
 批量注册默认串行执行（`concurrency=1`），并按全局账号启动时间间隔 `3000ms` 限速，用于降低 Stagewise 频率限制风险。可按需调高并发（1-5），但并发过高仍可能触发 429 Too many requests。
+
+WebUI 自动注册开始后可点击“停止”，后端会通过 `/v1/register/stop` 取消当前任务；已成功加入账号池的账号不会被删除。
 
 ### 额度查询
 

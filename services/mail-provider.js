@@ -26,9 +26,9 @@ export function getMailProviderLabel() {
   return providerLabels[provider] || provider;
 }
 
-export async function createMailbox(prefix = null, domain = null) {
+export async function createMailbox(prefix = null, domain = null, opts = {}) {
   const provider = getProviderModule();
-  const mailbox = await provider.createMailbox(prefix, domain);
+  const mailbox = await provider.createMailbox(prefix, domain, opts);
   return { ...mailbox, provider: getMailProviderName() };
 }
 

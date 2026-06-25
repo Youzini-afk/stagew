@@ -12,6 +12,32 @@ import { getCfMailConfig } from './settings.js';
 
 let cachedDiscovery = null;
 
+function createAbortError() {
+  const err = new Error('注册已停止');
+  err.name = 'AbortError';
+  return err;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function abortableSleep(ms, signal) {
+  if (ms <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(createAbortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function normalizeDomains(value) {
   if (Array.isArray(value)) {
     return value.map(v => String(v).trim()).filter(Boolean);
@@ -404,7 +430,9 @@ export async function getDomains() {
 /**
  * 创建邮箱。返回 { email, token, provider: 'cfmail' }。
  */
-export async function createMailbox(prefix = null, domain = null) {
+export async function createMailbox(prefix = null, domain = null, opts = {}) {
+  const { signal } = opts;
+  throwIfAborted(signal);
   const cfg = getCfMailConfig();
   const base = cleanBaseUrl(cfg.apiBase);
   if (!base) {
@@ -425,6 +453,7 @@ export async function createMailbox(prefix = null, domain = null) {
 
   const data = await requestJson(buildUrl(base, cfg.createEndpoint), {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
@@ -432,6 +461,7 @@ export async function createMailbox(prefix = null, domain = null) {
     },
     body: JSON.stringify(body),
   }, cfg);
+  throwIfAborted(signal);
   assertSuccess(data, '创建邮箱失败', cfg);
 
   const email = extractAddress(data);
@@ -445,7 +475,9 @@ export async function createMailbox(prefix = null, domain = null) {
 /**
  * 获取邮件列表。CFMail 必须使用 createMailbox 返回的邮箱 token。
  */
-export async function getEmails(mailboxOrObject, limit = 20) {
+export async function getEmails(mailboxOrObject, limit = 20, opts = {}) {
+  const { signal } = opts;
+  throwIfAborted(signal);
   const cfg = getCfMailConfig();
   const base = cleanBaseUrl(cfg.apiBase);
   if (!base) {
@@ -459,6 +491,7 @@ export async function getEmails(mailboxOrObject, limit = 20) {
 
   const data = await requestJson(buildUrl(base, cfg.listEndpoint, { limit, offset: 0 }), {
     method: 'GET',
+    signal,
     headers: {
       Accept: 'application/json',
       ...authHeader(cfg.mailboxAuthHeader, cfg.mailboxAuthScheme, mailbox.token),
@@ -473,15 +506,17 @@ export async function getEmails(mailboxOrObject, limit = 20) {
  * 轮询等待 Stagewise 验证码邮件。
  */
 export async function waitForVerificationCode(mailboxOrObject, opts = {}) {
-  const { maxWait = 60000, interval = 3000, senderFilter } = opts;
+  const { maxWait = 60000, interval = 3000, senderFilter, signal } = opts;
   const mailbox = normalizeMailbox(mailboxOrObject);
   const deadline = Date.now() + maxWait;
   const seenIds = new Set();
   let lastError = null;
 
   while (Date.now() < deadline) {
+    throwIfAborted(signal);
     try {
-      const emails = await getEmails(mailboxOrObject);
+      const emails = await getEmails(mailboxOrObject, 20, { signal });
+      throwIfAborted(signal);
       for (const email of emails) {
         const seenKey = [
           email.id || '',
@@ -503,9 +538,10 @@ export async function waitForVerificationCode(mailboxOrObject, opts = {}) {
       }
     } catch (err) {
       lastError = err;
+      if (err.name === 'AbortError') throw err;
       if (/未配置|需要邮箱 token/.test(err.message)) throw err;
     }
-    await new Promise(r => setTimeout(r, interval));
+    await abortableSleep(interval, signal);
   }
 
   const suffix = lastError ? `，最后错误: ${sanitizeMessage(lastError.message, getCfMailConfig(), [mailbox.token])}` : '';

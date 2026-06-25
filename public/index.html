@@ -841,6 +841,10 @@
             <span class="material-symbols-rounded">play_arrow</span>
             开始注册
           </button>
+          <button class="btn btn-danger-tonal" onclick="stopRegister()" id="btn-stop-register" style="display:none;">
+            <span class="material-symbols-rounded">stop_circle</span>
+            停止
+          </button>
         </div>
         <div class="register-log" id="register-log">
           <span style="color:#6c7086;">等待注册...</span>
@@ -1538,6 +1542,39 @@
     }
 
     /* ─── Auto Register ─────────────────────────────────── */
+    let activeRegisterAppendLog = null;
+
+    async function stopRegister() {
+      const stopBtn = document.getElementById('btn-stop-register');
+      const appendLog = activeRegisterAppendLog || ((msg, cls = '') => {
+        const logEl = document.getElementById('register-log');
+        const time = new Date().toLocaleTimeString('zh-CN');
+        logEl.innerHTML += `<div><span class="log-time">[${time}]</span> <span class="${cls}">${msg}</span></div>`;
+        logEl.scrollTop = logEl.scrollHeight;
+      });
+
+      stopBtn.disabled = true;
+      stopBtn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 停止中...';
+      appendLog('⏹ 正在请求停止...', 'log-step');
+
+      try {
+        const res = await apiFetch('/v1/register/stop', { method: 'POST' });
+        const data = await res.json();
+        if (data.stopped) {
+          appendLog('✅ 已发送停止信号，等待当前请求收尾...', 'log-success');
+          showSnackbar('已发送停止信号', 'success');
+        } else {
+          appendLog('ℹ️ 当前没有运行中的注册任务', 'log-step');
+          showSnackbar('没有运行中的注册任务');
+        }
+      } catch (err) {
+        appendLog(`❌ 停止请求失败: ${err.message}`, 'log-error');
+        showSnackbar('停止请求失败: ' + err.message, 'error');
+        stopBtn.disabled = false;
+        stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+      }
+    }
+
     async function loadDomains() {
       try {
         const res = await apiFetch('/v1/register/domains');
@@ -1566,6 +1603,7 @@
 
     async function startRegister() {
       const btn = document.getElementById('btn-register');
+      const stopBtn = document.getElementById('btn-stop-register');
       const countSelect = document.getElementById('reg-count');
       const customCount = document.getElementById('custom-count');
       let count = countSelect.value === 'custom' ? parseInt(customCount.value) : parseInt(countSelect.value);
@@ -1598,6 +1636,9 @@
 
       btn.disabled = true;
       btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> 注册中...';
+      stopBtn.style.display = 'inline-flex';
+      stopBtn.disabled = false;
+      stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
       logEl.innerHTML = '';
 
       const appendLog = (msg, cls = '') => {
@@ -1605,6 +1646,7 @@
         logEl.innerHTML += `<div><span class="log-time">[${time}]</span> <span class="${cls}">${msg}</span></div>`;
         logEl.scrollTop = logEl.scrollHeight;
       };
+      activeRegisterAppendLog = appendLog;
 
       try {
         if (count === 1) {
@@ -1615,12 +1657,20 @@
             body: JSON.stringify({ maxWait })
           });
           const data = await res.json();
+          if (!res.ok && !data.cancelled) {
+            appendLog(`❌ ${data.error || '请求失败'}`, 'log-error');
+            showSnackbar(data.error || '请求失败', 'error');
+            return;
+          }
           if (data.logs) {
             data.logs.forEach(l => appendLog(l.message, l.step === 'done' ? 'log-success' : 'log-step'));
           }
           if (data.success) {
             appendLog(`✅ 注册成功: ${data.email}`, 'log-success');
             showSnackbar('注册成功！', 'success');
+          } else if (data.cancelled) {
+            appendLog('⏹ 注册已停止', 'log-step');
+            showSnackbar('注册已停止');
           } else {
             appendLog(`❌ 失败: ${data.error}`, 'log-error');
             showSnackbar('注册失败', 'error');
@@ -1633,6 +1683,16 @@
             body: JSON.stringify({ count, concurrency, delayMs, maxWait })
           });
           const data = await res.json();
+          if (!res.ok && !data.cancelled) {
+            appendLog(`❌ ${data.error || '请求失败'}`, 'log-error');
+            showSnackbar(data.error || '请求失败', 'error');
+            return;
+          }
+          if (!Array.isArray(data.results)) {
+            appendLog(`❌ ${data.error || '批量注册响应异常'}`, 'log-error');
+            showSnackbar(data.error || '批量注册响应异常', 'error');
+            return;
+          }
           data.results.forEach((r, i) => {
             if (r.logs) {
               appendLog(`── 账号 #${i + 1} ──`, 'log-step');
@@ -1640,22 +1700,36 @@
             }
             if (r.success) {
               appendLog(`✅ #${i + 1} 成功: ${r.email}`, 'log-success');
+            } else if (r.cancelled) {
+              appendLog(`⏹ #${i + 1} 已停止`, 'log-step');
             } else {
               appendLog(`❌ #${i + 1} 失败: ${r.error}`, 'log-error');
             }
           });
           const s = data.summary;
-          appendLog(`\n📊 完成: ${s.success}/${s.total} 成功, ${s.failed} 失败`, 'log-step');
-          showSnackbar(`注册完成: ${s.success}/${s.total}`, s.success > 0 ? 'success' : 'error');
+          appendLog(`\n📊 完成: ${s.success}/${s.total} 成功, ${s.failed} 失败, ${s.cancelled || 0} 停止`, 'log-step');
+          showSnackbar(data.cancelled ? '注册已停止' : `注册完成: ${s.success}/${s.total}`, data.cancelled || s.success > 0 ? 'success' : 'error');
         }
         loadStats();
         loadAccounts();
       } catch (err) {
-        appendLog(`❌ 请求失败: ${err.message}`, 'log-error');
-        showSnackbar('请求失败', 'error');
+        if (err.message && err.message.includes('已有自动注册任务')) {
+          appendLog(`ℹ️ ${err.message}`, 'log-step');
+          showSnackbar(err.message, 'error');
+        } else if (err.name === 'AbortError' || (err.message && err.message.includes('注册已停止'))) {
+          appendLog('⏹ 注册已停止', 'log-step');
+          showSnackbar('注册已停止');
+        } else {
+          appendLog(`❌ 请求失败: ${err.message}`, 'log-error');
+          showSnackbar('请求失败', 'error');
+        }
       } finally {
         btn.disabled = false;
         btn.innerHTML = '<span class="material-symbols-rounded">play_arrow</span> 开始注册';
+        stopBtn.disabled = false;
+        stopBtn.style.display = 'none';
+        stopBtn.innerHTML = '<span class="material-symbols-rounded">stop_circle</span> 停止';
+        activeRegisterAppendLog = null;
       }
     }
 

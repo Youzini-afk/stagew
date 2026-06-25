@@ -15,6 +15,32 @@
 
 import { getMailConfig } from './settings.js';
 
+function createAbortError() {
+  const err = new Error('注册已停止');
+  err.name = 'AbortError';
+  return err;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function abortableSleep(ms, signal) {
+  if (ms <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(createAbortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function getHeaders() {
   const cfg = getMailConfig();
   return {
@@ -32,7 +58,9 @@ function getBaseUrl() {
  * 生成临时邮箱
  * GET = 随机生成; POST = 可指定 prefix/domain
  */
-export async function createMailbox(prefix = null, domain = null) {
+export async function createMailbox(prefix = null, domain = null, opts = {}) {
+  const { signal } = opts;
+  throwIfAborted(signal);
   const base = getBaseUrl();
   const headers = getHeaders();
 
@@ -43,9 +71,11 @@ export async function createMailbox(prefix = null, domain = null) {
 
     const res = await fetch(`${base}/api/generate-email`, {
       method: 'POST',
+      signal,
       headers,
       body: JSON.stringify(body),
     });
+    throwIfAborted(signal);
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '创建邮箱失败');
     return { email: data.data.email, usage: data.usage, provider: 'gptmail' };
@@ -53,8 +83,10 @@ export async function createMailbox(prefix = null, domain = null) {
 
   const res = await fetch(`${base}/api/generate-email`, {
     method: 'GET',
+    signal,
     headers,
   });
+  throwIfAborted(signal);
   const data = await res.json();
   if (!data.success) throw new Error(data.error || '创建邮箱失败');
   return { email: data.data.email, usage: data.usage, provider: 'gptmail' };
@@ -87,7 +119,9 @@ export function clearDomainCache() {
 /**
  * 获取邮件列表
  */
-export async function getEmails(mailbox, limit = 20) {
+export async function getEmails(mailbox, limit = 20, opts = {}) {
+  const { signal } = opts;
+  throwIfAborted(signal);
   const base = getBaseUrl();
   const headers = getHeaders();
   const emailAddress = typeof mailbox === 'string' ? mailbox : (mailbox?.email || mailbox?.address || '');
@@ -98,7 +132,7 @@ export async function getEmails(mailbox, limit = 20) {
 
   const res = await fetch(
     `${base}/api/emails?email=${encodeURIComponent(emailAddress)}`,
-    { headers }
+    { headers, signal }
   );
   const data = await res.json();
   if (!data.success) throw new Error(data.error || '获取邮件失败');
@@ -130,13 +164,15 @@ export async function getEmailDetail(emailId) {
  * 轮询等待验证码邮件
  */
 export async function waitForVerificationCode(mailbox, opts = {}) {
-  const { maxWait = 60000, interval = 3000, senderFilter } = opts;
+  const { maxWait = 60000, interval = 3000, senderFilter, signal } = opts;
   const deadline = Date.now() + maxWait;
   const seenIds = new Set();
 
   while (Date.now() < deadline) {
+    throwIfAborted(signal);
     try {
-      const emails = await getEmails(mailbox);
+      const emails = await getEmails(mailbox, 20, { signal });
+      throwIfAborted(signal);
       for (const email of emails) {
         const seenKey = `${email.id || ''}:${email.verification_code || ''}:${email.content_length || 0}`;
         if (seenIds.has(seenKey)) continue;
@@ -149,8 +185,11 @@ export async function waitForVerificationCode(mailbox, opts = {}) {
           return { code: email.verification_code, email };
         }
       }
-    } catch (e) { /* 继续轮询 */ }
-    await new Promise(r => setTimeout(r, interval));
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      /* 继续轮询 */
+    }
+    await abortableSleep(interval, signal);
   }
 
   throw new Error(`等待验证码超时 (${maxWait / 1000}s)`);

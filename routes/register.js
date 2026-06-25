@@ -4,14 +4,80 @@ import * as mailProvider from '../services/mail-provider.js';
 
 const router = express.Router();
 
+let currentRegisterJob = null;
+
 function clampInt(value, defaultValue, min, max) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return defaultValue;
   return Math.min(Math.max(parsed, min), max);
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function createAbortError() {
+  const err = new Error('注册已停止');
+  err.name = 'AbortError';
+  return err;
+}
+
+function isAbortError(err) {
+  return err?.name === 'AbortError' || err?.message === '注册已停止';
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function sleep(ms, signal) {
+  if (ms <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.reject(createAbortError());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(createAbortError());
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function isActiveJob(job = currentRegisterJob) {
+  return job && (job.status === 'running' || job.status === 'stopping');
+}
+
+function publicJob(job = currentRegisterJob) {
+  if (!job) return null;
+  return {
+    id: job.id,
+    type: job.type,
+    status: job.status,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt || null,
+    summary: job.summary || null,
+  };
+}
+
+function startRegisterJob(type) {
+  if (isActiveJob()) return null;
+  const controller = new AbortController();
+  currentRegisterJob = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    type,
+    controller,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    summary: null,
+  };
+  return currentRegisterJob;
+}
+
+function finishRegisterJob(job, status, summary = null) {
+  if (!job || currentRegisterJob?.id !== job.id) return;
+  job.status = status;
+  job.finishedAt = new Date().toISOString();
+  job.summary = summary;
 }
 
 /**
@@ -19,23 +85,42 @@ function sleep(ms) {
  * Body: { prefix?, addToPool?, maxWait? }
  */
 router.post('/auto', async (req, res) => {
+  const job = startRegisterJob('auto');
+  if (!job) {
+    return res.status(409).json({
+      success: false,
+      error: '已有自动注册任务正在运行，请先停止或等待完成',
+      job: publicJob(),
+    });
+  }
+
   const { prefix, addToPool, maxWait } = req.body || {};
   const normalizedMaxWait = clampInt(maxWait, 60000, 10000, 300000);
   const logs = [];
 
   try {
+    throwIfAborted(job.controller.signal);
     const result = await autoRegister({
       prefix,
       addToPool: addToPool ?? true,
       maxWait: normalizedMaxWait,
+      signal: job.controller.signal,
       onProgress: (step, message) => {
         logs.push({ step, message, time: new Date().toISOString() });
       },
     });
 
-    res.json({ ...result, logs });
+    const summary = { total: 1, success: 1, failed: 0, cancelled: 0, email: result.email };
+    finishRegisterJob(job, 'completed', summary);
+    res.json({ ...result, jobId: job.id, logs });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message, logs });
+    if (isAbortError(err) || job.controller.signal.aborted) {
+      const summary = { total: 1, success: 0, failed: 1, cancelled: 1 };
+      finishRegisterJob(job, 'cancelled', summary);
+      return res.json({ success: false, cancelled: true, error: '注册已停止', jobId: job.id, logs });
+    }
+    finishRegisterJob(job, 'failed', { total: 1, success: 0, failed: 1, cancelled: 0, error: err.message });
+    res.status(500).json({ success: false, error: err.message, jobId: job.id, logs });
   }
 });
 
@@ -45,6 +130,15 @@ router.post('/auto', async (req, res) => {
  * count 最大 1000；concurrency 1-5；delayMs 0-60000；maxWait 10000-300000
  */
 router.post('/batch', async (req, res) => {
+  const job = startRegisterJob('batch');
+  if (!job) {
+    return res.status(409).json({
+      success: false,
+      error: '已有自动注册任务正在运行，请先停止或等待完成',
+      job: publicJob(),
+    });
+  }
+
   const body = req.body || {};
   const total = clampInt(body.count, 100, 1, 1000);
   const concurrency = clampInt(body.concurrency, 1, 1, 5);
@@ -56,30 +150,41 @@ router.post('/batch', async (req, res) => {
 
   async function waitForStartSlot() {
     if (delayMs <= 0) return;
+    throwIfAborted(job.controller.signal);
     const now = Date.now();
     const scheduledAt = nextStartAt;
     nextStartAt = Math.max(nextStartAt, now) + delayMs;
     const waitMs = Math.max(0, scheduledAt - now);
-    if (waitMs > 0) await sleep(waitMs);
+    if (waitMs > 0) await sleep(waitMs, job.controller.signal);
+    throwIfAborted(job.controller.signal);
   }
 
   async function runOne(index) {
     const logs = [];
     try {
+      throwIfAborted(job.controller.signal);
       await waitForStartSlot();
       const result = await autoRegister({
         addToPool: true,
         maxWait,
+        signal: job.controller.signal,
         onProgress: (step, message) => { logs.push({ step, message }); },
       });
       results[index] = { index, success: true, email: result.email, provider: result.provider, logs };
     } catch (err) {
-      results[index] = { index, success: false, error: err.message, logs };
+      const cancelled = isAbortError(err) || job.controller.signal.aborted;
+      results[index] = {
+        index,
+        success: false,
+        cancelled,
+        error: cancelled ? '注册已停止' : err.message,
+        logs,
+      };
     }
   }
 
   async function worker() {
-    while (nextIndex < total) {
+    while (nextIndex < total && !job.controller.signal.aborted) {
       const index = nextIndex++;
       await runOne(index);
     }
@@ -87,17 +192,53 @@ router.post('/batch', async (req, res) => {
 
   await Promise.all(Array.from({ length: Math.min(concurrency, total) }, () => worker()));
 
+  if (job.controller.signal.aborted) {
+    for (let i = 0; i < total; i++) {
+      if (!results[i]) {
+        results[i] = { index: i, success: false, cancelled: true, error: '注册已停止', logs: [] };
+      }
+    }
+  }
+
+  const summary = {
+    total,
+    concurrency,
+    delayMs,
+    maxWait,
+    success: results.filter(r => r?.success).length,
+    failed: results.filter(r => r && !r.success).length,
+    cancelled: results.filter(r => r?.cancelled).length,
+  };
+
+  finishRegisterJob(job, job.controller.signal.aborted ? 'cancelled' : 'completed', summary);
+
   res.json({
+    jobId: job.id,
+    cancelled: job.controller.signal.aborted,
     results,
-    summary: {
-      total,
-      concurrency,
-      delayMs,
-      maxWait,
-      success: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
-    },
+    summary,
   });
+});
+
+/**
+ * POST /v1/register/stop — 停止当前自动注册任务
+ */
+router.post('/stop', (req, res) => {
+  const job = currentRegisterJob;
+  if (!isActiveJob(job)) {
+    return res.json({ success: true, stopped: false, job: publicJob(job) });
+  }
+
+  job.status = 'stopping';
+  if (!job.controller.signal.aborted) job.controller.abort();
+  res.json({ success: true, stopped: true, jobId: job.id, job: publicJob(job) });
+});
+
+/**
+ * GET /v1/register/status — 当前/最近自动注册任务状态
+ */
+router.get('/status', (req, res) => {
+  res.json({ success: true, job: publicJob() });
 });
 
 /**
