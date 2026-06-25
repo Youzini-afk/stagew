@@ -13,6 +13,28 @@ import { config } from '../config.js';
 
 const AUTH_BASE = `${config.apiUrl}/v1/auth`;
 
+function parseRetryAfter(value) {
+  if (!value) return null;
+  const seconds = Number.parseInt(value, 10);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+
+  const dateMs = Date.parse(value);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, Math.ceil((dateMs - Date.now()) / 1000));
+  }
+  return null;
+}
+
+function extractErrorMessage(text) {
+  if (!text) return '';
+  try {
+    const data = JSON.parse(text);
+    return data?.message || data?.error?.message || data?.error || data?.detail || text;
+  } catch (err) {
+    return text;
+  }
+}
+
 /**
  * 发送邮件验证码
  * @param {string} email - 邮箱地址
@@ -33,8 +55,20 @@ export async function sendOtp(email, type = 'sign-in') {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
+      const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+      if (response.status === 429) {
+        const waitHint = retryAfter !== null ? `，请等待 ${retryAfter} 秒后再试` : '，请稍后再试';
+        const message = extractErrorMessage(text);
+        return {
+          success: false,
+          status: response.status,
+          retryAfter,
+          error: `触发频率限制${waitHint}${message ? `: ${message}` : ''}`,
+        };
+      }
       return {
         success: false,
+        status: response.status,
         error: `发送验证码失败 (${response.status}): ${text}`,
       };
     }

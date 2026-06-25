@@ -220,10 +220,92 @@ function stripHtml(text) {
   return String(text || '').replace(/<[^>]*>/g, ' ');
 }
 
+function decodeQuotedPrintable(text) {
+  return String(text || '')
+    .replace(/=\r?\n/g, '')
+    .replace(/=([A-Fa-f0-9]{2})/g, (_, hex) => String.fromCharCode(Number.parseInt(hex, 16)));
+}
+
+function extractRawBody(raw) {
+  const text = String(raw || '');
+  const parts = text.split(/\r?\n\r?\n/);
+  return parts.length > 1 ? parts.slice(1).join('\n\n') : text;
+}
+
+const INVALID_VERIFICATION_CODES = new Set(['000000', '111111', '123456', '654321']);
+const CODE_KEYWORDS = 'stagewise|verification|verify|code|otp|验证码|驗證碼|校验码|驗證|验证';
+
+function isValidVerificationCode(code) {
+  return /^\d{6}$/.test(code) && !INVALID_VERIFICATION_CODES.has(code);
+}
+
+function normalizeSearchText(text) {
+  return stripHtml(decodeQuotedPrintable(text))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findContextualCode(text) {
+  const normalized = normalizeSearchText(text);
+  if (!normalized) return null;
+
+  const re = new RegExp(
+    `(?:${CODE_KEYWORDS})[\\s\\S]{0,120}?(\\d{6})|(\\d{6})[\\s\\S]{0,120}?(?:${CODE_KEYWORDS})`,
+    'gi'
+  );
+  let match;
+  while ((match = re.exec(normalized))) {
+    const code = match[1] || match[2];
+    if (isValidVerificationCode(code)) return code;
+  }
+  return null;
+}
+
+function findUniquePlainCode(text) {
+  const normalized = normalizeSearchText(text);
+  if (!normalized) return null;
+
+  const codes = new Set();
+  const re = /(?:^|\D)(\d{6})(?!\d)/g;
+  let match;
+  while ((match = re.exec(normalized))) {
+    if (isValidVerificationCode(match[1])) codes.add(match[1]);
+  }
+  return codes.size === 1 ? [...codes][0] : null;
+}
+
+function findCodeWithSource(fields, { allowPlain = true } = {}) {
+  const normalizedFields = fields
+    .map(field => ({ name: field.name, value: normalizeSearchText(field.value) }))
+    .filter(field => field.value);
+
+  // 优先匹配带语义上下文的验证码，避免从日期、Message-ID、占位内容中误取 000000。
+  for (const field of normalizedFields) {
+    const code = findContextualCode(field.value);
+    if (code) return { code, field: field.name };
+  }
+
+  const combined = normalizedFields.map(field => field.value).join(' ');
+  const contextual = findContextualCode(combined);
+  if (contextual) return { code: contextual, field: 'combined' };
+
+  // 非 raw 正文字段允许唯一 6 位数字兜底；raw 应传 allowPlain=false，避免盲扫 MIME 元数据。
+  if (allowPlain) {
+    for (const field of normalizedFields) {
+      const code = findUniquePlainCode(field.value);
+      if (code) return { code, field: field.name };
+    }
+    const plain = findUniquePlainCode(combined);
+    if (plain) return { code: plain, field: 'combined' };
+  }
+
+  return { code: null, field: null };
+}
+
 export function extractCode(...parts) {
-  const text = parts.map(part => stripHtml(part)).join(' ');
-  const match = text.match(/(?:^|\D)(\d{6})(?!\d)/);
-  return match ? match[1] : null;
+  const fields = parts.flat().map((part, index) => ({ name: `part${index + 1}`, value: part }));
+  return findCodeWithSource(fields, { allowPlain: true }).code;
 }
 
 function normalizeEmail(mail) {
@@ -238,17 +320,34 @@ function normalizeEmail(mail) {
     source.from,
     source.from_address
   );
-  const text = firstNonEmpty(mail?.text, mail?.content, mail?.body, source.text, source.content, source.body);
+  const text = firstNonEmpty(mail?.text, source.text);
   const html = firstNonEmpty(mail?.html, source.html);
+  const content = firstNonEmpty(mail?.content, mail?.body, source.content, source.body);
   const raw = firstNonEmpty(mail?.raw, source.raw, sourceText);
   const createdAt = firstNonEmpty(mail?.created_at, mail?.received_at, mail?.date, source.created_at, source.date);
+  const codeMatch = findCodeWithSource([
+    { name: 'subject', value: subject },
+    { name: 'text', value: text },
+    { name: 'html', value: html },
+    { name: 'content', value: content },
+  ], { allowPlain: true });
+  const rawCodeMatch = codeMatch.code
+    ? { code: null, field: null }
+    : findCodeWithSource([{ name: 'raw', value: extractRawBody(raw) }], { allowPlain: false });
+  const verificationCode = codeMatch.code || rawCodeMatch.code;
+  const matchedField = codeMatch.field || rawCodeMatch.field;
 
   return {
     id: firstNonEmpty(mail?.id, mail?.message_id, source.id, source.message_id) || `${sender || 'mail'}-${subject}-${createdAt || ''}`,
     sender,
     subject,
-    preview: String(firstNonEmpty(text, stripHtml(html), raw, '') || '').substring(0, 200),
-    verification_code: extractCode(subject, text, html, raw, mail?.content, source.content, sourceText),
+    preview: String(firstNonEmpty(text, content, stripHtml(html), raw, '') || '').substring(0, 200),
+    verification_code: verificationCode,
+    matched_field: matchedField,
+    text_length: String(text || '').length,
+    html_length: String(html || '').length,
+    content_length: String(content || '').length,
+    raw_length: String(raw || '').length,
     received_at: createdAt,
   };
 }
@@ -384,8 +483,16 @@ export async function waitForVerificationCode(mailboxOrObject, opts = {}) {
     try {
       const emails = await getEmails(mailboxOrObject);
       for (const email of emails) {
-        if (seenIds.has(email.id)) continue;
-        seenIds.add(email.id);
+        const seenKey = [
+          email.id || '',
+          email.verification_code || '',
+          email.text_length || 0,
+          email.html_length || 0,
+          email.content_length || 0,
+          email.raw_length || 0,
+        ].join(':');
+        if (seenIds.has(seenKey)) continue;
+        seenIds.add(seenKey);
         if (senderFilter && email.sender &&
             !email.sender.toLowerCase().includes(senderFilter.toLowerCase())) {
           continue;

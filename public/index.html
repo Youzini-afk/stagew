@@ -802,6 +802,7 @@
         </div>
         <p style="font-size:14px;color:var(--md-on-surface-variant);margin-bottom:16px;">
           自动创建临时邮箱 → 发送验证码 → 收取验证码 → 完成注册 → 加入账号池，全流程无需人工干预。
+          Stagewise 有频率限制，批量注册默认串行执行；并发过高可能触发 429 Too many requests。
         </p>
         <div class="form-field">
           <label>注册数量</label>
@@ -817,6 +818,23 @@
         <div class="form-field" id="custom-count-wrapper" style="display:none;">
           <label>自定义数量 (1-1000)</label>
           <input type="number" id="custom-count" min="1" max="1000" placeholder="输入数量">
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>批量并发数 (1-5)</label>
+            <input type="number" id="reg-concurrency" min="1" max="5" value="1">
+            <div class="helper-text">默认 1。建议保持串行，避免触发 Stagewise 频率限制。</div>
+          </div>
+          <div class="form-field">
+            <label>批量注册间隔 (ms)</label>
+            <input type="number" id="reg-delay-ms" min="0" max="60000" step="500" value="3000">
+            <div class="helper-text">默认 3000ms，按全局账号启动时间限速，仅批量注册时使用。</div>
+          </div>
+          <div class="form-field">
+            <label>验证码等待时间 (ms)</label>
+            <input type="number" id="reg-max-wait" min="10000" max="300000" step="5000" value="60000">
+            <div class="helper-text">默认 60000ms，范围 10000-300000。</div>
+          </div>
         </div>
         <div style="display:flex;gap:12px;margin-bottom:16px;">
           <button class="btn btn-filled" onclick="startRegister()" id="btn-register">
@@ -1551,6 +1569,9 @@
       const countSelect = document.getElementById('reg-count');
       const customCount = document.getElementById('custom-count');
       let count = countSelect.value === 'custom' ? parseInt(customCount.value) : parseInt(countSelect.value);
+      const concurrency = parseInt(document.getElementById('reg-concurrency').value) || 1;
+      const delayMs = parseInt(document.getElementById('reg-delay-ms').value) || 0;
+      const maxWait = parseInt(document.getElementById('reg-max-wait').value) || 60000;
 
       if (!count || count < 1) {
         showSnackbar('请输入有效的注册数量', 'error');
@@ -1558,6 +1579,18 @@
       }
       if (count > 1000) {
         showSnackbar('注册数量不能超过 1000', 'error');
+        return;
+      }
+      if (concurrency < 1 || concurrency > 5) {
+        showSnackbar('批量并发数范围为 1-5', 'error');
+        return;
+      }
+      if (delayMs < 0 || delayMs > 60000) {
+        showSnackbar('批量注册间隔范围为 0-60000ms', 'error');
+        return;
+      }
+      if (maxWait < 10000 || maxWait > 300000) {
+        showSnackbar('验证码等待时间范围为 10000-300000ms', 'error');
         return;
       }
 
@@ -1579,7 +1612,7 @@
           const res = await apiFetch('/v1/register/auto', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify({ maxWait })
           });
           const data = await res.json();
           if (data.logs) {
@@ -1593,11 +1626,11 @@
             showSnackbar('注册失败', 'error');
           }
         } else {
-          appendLog(`🚀 批量注册 ${count} 个账号...`, 'log-step');
+          appendLog(`🚀 批量注册 ${count} 个账号，并发 ${concurrency}，间隔 ${delayMs}ms...`, 'log-step');
           const res = await apiFetch('/v1/register/batch', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ count })
+            body: JSON.stringify({ count, concurrency, delayMs, maxWait })
           });
           const data = await res.json();
           data.results.forEach((r, i) => {

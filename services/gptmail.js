@@ -109,6 +109,7 @@ export async function getEmails(mailbox, limit = 20) {
     subject: e.subject,
     preview: e.content ? e.content.substring(0, 200) : '',
     verification_code: extractCode(e.subject, e.content),
+    content_length: String(e.content || '').length,
     received_at: e.created_at,
   }));
 }
@@ -137,8 +138,9 @@ export async function waitForVerificationCode(mailbox, opts = {}) {
     try {
       const emails = await getEmails(mailbox);
       for (const email of emails) {
-        if (seenIds.has(email.id)) continue;
-        seenIds.add(email.id);
+        const seenKey = `${email.id || ''}:${email.verification_code || ''}:${email.content_length || 0}`;
+        if (seenIds.has(seenKey)) continue;
+        seenIds.add(seenKey);
         if (senderFilter && email.sender &&
             !email.sender.toLowerCase().includes(senderFilter.toLowerCase())) {
           continue;
@@ -180,8 +182,13 @@ export async function clearMailbox(mailbox) {
 /**
  * 从主题和内容中提取验证码
  */
-function extractCode(subject, content) {
+export function extractCode(subject, content) {
   const text = `${subject || ''} ${content || ''}`;
-  const match = text.match(/\b(\d{4,8})\b/);
-  return match ? match[1] : null;
+  const invalidCodes = new Set(['000000', '111111', '123456', '654321']);
+  const re = /(?:^|\D)(\d{6})(?!\d)/g;
+  let match;
+  while ((match = re.exec(text))) {
+    if (!invalidCodes.has(match[1])) return match[1];
+  }
+  return null;
 }
