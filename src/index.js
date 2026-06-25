@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from '../config.js';
 import { closeDb } from '../db/database.js';
-import { extractToken } from '../middleware/auth.js';
+import { extractToken, requireAdmin } from '../middleware/auth.js';
 import healthRouter from '../routes/health.js';
 import authRouter from '../routes/auth.js';
 import poolRouter from '../routes/pool.js';
@@ -24,10 +24,12 @@ const app = express();
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Admin-Token', 'X-API-Key'],
 }));
 
-app.use(express.json({ limit: '50mb' }));
+// 聊天请求可能较大；其他管理/API 请求用较小限制，减少公网滥用面
+app.use('/v1/chat/completions', express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Token 提取中间件（仅对 /v1 路由）
@@ -35,29 +37,34 @@ app.use('/v1', extractToken);
 
 // ─── 路由 ─────────────────────────────────────────────────────────────────
 app.use('/', healthRouter);
-app.use('/v1/auth', authRouter);
-app.use('/v1/pool', poolRouter);
-app.use('/v1/usage', usageRouter);
-app.use('/v1/register', registerRouter);
-app.use('/v1/settings', settingsRouter);
 
-// OpenAI 兼容端点
-app.get('/v1/models', handleListModels);
-app.post('/v1/chat/completions', handleChatCompletions);
-
-// 前端页面
+// 管理面板页面本身可打开；敏感管理 API 由 ADMIN_TOKEN 保护
 app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
+app.use('/v1/pool', requireAdmin, poolRouter);
+app.use('/v1/settings', requireAdmin, settingsRouter);
+app.use('/v1/register', requireAdmin, registerRouter);
+app.use('/v1/auth', requireAdmin, authRouter);
+
+// /v1/usage：仅 /pool 子路由需要 admin；普通 / 用账号 token 流程，不挂 admin
+app.use('/v1/usage/pool', requireAdmin);
+app.use('/v1/usage', usageRouter);
+
+// OpenAI 兼容端点（不需要 admin token；防滥用由 extractToken 的 PROXY_API_KEY 逻辑处理）
+app.get('/v1/models', handleListModels);
+app.post('/v1/chat/completions', handleChatCompletions);
 
 // ─── 启动 ─────────────────────────────────────────────────────────────────
-const server = app.listen(config.port, () => {
+// 显式绑定 0.0.0.0，符合 Zeabur 官方排障建议（容器内必须监听全部网卡）
+const HOST = '0.0.0.0';
+const server = app.listen(config.port, HOST, () => {
   console.log(`
 ╔══════════════════════════════════════════════════╗
 ║              Stagewise 2api v2.0                 ║
 ╠══════════════════════════════════════════════════╣
 ║  代理网关: ${config.llmGateway.padEnd(35)}║
-║  监听端口: ${String(config.port).padEnd(35)}║
+║  监听地址: ${(HOST + ':' + config.port).padEnd(35)}║
 ║  模型数量: ${String(STAGEWISE_MODELS.length).padEnd(35)}║
 ║  默认Token: ${config.defaultToken ? '✅ 已设置'.padEnd(29) : '❌ 未设置'.padEnd(29)}║
 ╠══════════════════════════════════════════════════╣

@@ -10,7 +10,7 @@
 
 - 🔄 **OpenAI 兼容 API** — 直接对接 ChatGPT-Next-Web、LobeChat、OpenCat 等客户端
 - 👥 **多账号池** — SQLite 存储，轮询调度，自动故障切换（连续错误 3 次自动跳过，5 分钟冷却）
-- 🤖 **自动注册** — 接入 GPTMail 临时邮箱，一键批量注册 Stagewise 账号（支持 100~10000 个）
+- 🤖 **自动注册** — 接入 GPTMail 临时邮箱，一键批量注册 Stagewise 账号（单次最多 1000 个）
 - 💰 **额度监控** — 实时查看日/周/月配额使用情况，5 分钟 SQLite 缓存，减少 API 调用
 - 📊 **Material Design 3 前端** — Google 风格管理面板，进度条可视化配额
 - 🧪 **API 测试** — 内置 44 个模型测试，按厂商分组
@@ -61,6 +61,55 @@ npm run dev      # 开发模式（热重载）
 
 - **管理面板**: http://localhost:3000/dashboard
 - **API 端点**: http://localhost:3000/v1
+- **健康检查**: http://localhost:3000/healthz
+
+## ☁️ Zeabur 部署
+
+适配已就绪：服务默认监听 `0.0.0.0`，数据库路径支持 `DB_PATH` / `DATA_DIR` 注入，提供 `/healthz` 探活端点，并内置公网管理鉴权。
+
+### 部署步骤
+
+1. 在 Zeabur 控制台 → New Project → 通过 GitHub 仓库导入本项目
+2. Zeabur 会自动识别 Node.js 项目并执行 `npm install && npm start`
+3. 平台自动注入 `PORT`，无需手动设置；`HOST` 已固定为 `0.0.0.0`
+4. 挂载持久化 Volume（强烈建议，否则重启丢数据）：
+   - Volumes → Add Volume → 挂载路径填 `/data`
+5. 设置环境变量：
+   - `DB_PATH=/data/accounts.db`
+   - `ADMIN_TOKEN=一串足够长的随机密码`（必填，用于登录 WebUI）
+   - `PROXY_API_KEY=给 OpenAI 客户端使用的 API Key`（公网部署强烈建议，防止陌生人消耗账号池）
+   - `STAGEWISE_TOKEN=`、`MAIL_URL=`、`MAIL_TOKEN=`（按需）
+6. Networking → 生成域名（如 `stagewise-2api.zeabur.app`）
+7. Health Check 配置：
+   - **Path**：`/healthz`
+   - 探活会实际 `SELECT 1`，数据库异常时返回 503，平台自动重启实例
+
+### 部署后访问
+
+- WebUI 管理面板：`https://<your-app>.zeabur.app/dashboard`
+- OpenAI 兼容 Base URL：`https://<your-app>.zeabur.app/v1`
+- 健康检查：`https://<your-app>.zeabur.app/healthz`
+
+WebUI 首次打开会要求输入 `ADMIN_TOKEN`。Token 只保存在浏览器 `localStorage`，可点右上角“退出”清除。
+
+OpenAI 客户端建议这样填：
+
+| 配置项 | 值 |
+|--------|----|
+| Base URL | `https://<your-app>.zeabur.app/v1` |
+| API Key | `PROXY_API_KEY` 的值 |
+
+如果你不设置 `PROXY_API_KEY`，公网任何人都可能调用接口消耗账号池，不建议这样部署。
+
+### 数据持久化
+
+| 项 | 推荐值 |
+|----|--------|
+| Volume 挂载点 | `/data` |
+| `DB_PATH` | `/data/accounts.db` |
+| 备份对象 | `/data/accounts.db` 及其 `-wal` / `-shm` 文件 |
+
+> 提示：未挂载 Volume 时数据库会写入容器临时层，重启即丢。务必按上表挂载 `/data`。
 
 ## 📖 使用方式
 
@@ -104,7 +153,7 @@ print(response.choices[0].message.content)
 
 在设置中填写：
 - API 地址：`http://localhost:3000/v1`
-- API Key：任意（或填 `not-needed`）
+- API Key：如果设置了 `PROXY_API_KEY`，填它；否则可填任意值（或 `not-needed`）
 
 ### Token 来源优先级
 
@@ -153,7 +202,7 @@ print(response.choices[0].message.content)
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/v1/register/auto` | 注册单个账号（body: `{prefix?, maxWait?}`） |
-| POST | `/v1/register/batch` | 批量注册（body: `{count: 100}`，count 上限 10000） |
+| POST | `/v1/register/batch` | 批量注册（body: `{count: 100}`，count 上限 1000） |
 | GET | `/v1/register/domains` | 获取可用邮箱域名 |
 
 **流程：** 创建临时邮箱 → 发送 Stagewise OTP → 轮询收件箱 → 获取验证码 → 完成验证 → 自动加入账号池
@@ -181,7 +230,7 @@ stagewise-2api/
 ├── src/
 │   └── index.js                     # 入口 & 路由注册
 ├── middleware/
-│   └── auth.js                      # Token 提取中间件（请求头 → 账号池 → .env）
+│   └── auth.js                      # Token 提取、管理鉴权、代理 API Key 防滥用
 ├── routes/
 │   ├── health.js                    # 健康检查
 │   ├── auth.js                      # 认证端点
@@ -200,10 +249,10 @@ stagewise-2api/
 │   ├── stagewise-system-prompt.js   # 验证 prompt（5515 字符）
 │   └── usage.js                     # 用量查询 + 5 分钟缓存
 ├── db/
-│   └── database.js                  # SQLite 初始化（accounts, usage_history, settings）
+│   └── database.js                  # SQLite 初始化（accounts, usage_history, settings）；支持 DB_PATH / DATA_DIR
 ├── public/
 │   └── index.html                   # Material Design 3 管理面板
-├── data/                            # SQLite 数据（git-ignored）
+├── data/                            # 默认 SQLite 数据目录（git-ignored，Zeabur 上改用 /data）
 ├── .env                             # 环境变量（git-ignored）
 ├── .env.example                     # 配置模板
 └── package.json
@@ -215,16 +264,25 @@ stagewise-2api/
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `PORT` | 监听端口 | `3000` |
+| `PORT` | 监听端口（Zeabur 平台自动注入，请勿固定） | `3000` |
+| `DB_PATH` | SQLite 数据库文件绝对路径，最高优先级 | 空（默认 `../data/accounts.db`） |
+| `DATA_DIR` | 数据目录；未设 `DB_PATH` 时使用 `${DATA_DIR}/accounts.db` | 空 |
+| `ADMIN_TOKEN` | 管理后台 Token；保护 WebUI 管理操作和管理 API | 空（管理接口返回 503） |
+| `PROXY_API_KEY` | OpenAI 客户端 API Key；设置后必须带此 Key 才能使用账号池 / `.env` 默认 token | 空 |
+| `API_KEY` | `PROXY_API_KEY` 的兼容别名 | 空 |
 | `STAGEWISE_LLM_URL` | Stagewise LLM 网关 | `https://api.stagewise.io/v1/ai` |
 | `STAGEWISE_API_URL` | Stagewise API 地址 | `https://api.stagewise.io` |
 | `STAGEWISE_TOKEN` | 默认 Bearer Token | 空 |
 | `MAIL_URL` | 临时邮箱 API 地址 | `https://mail.chatgpt.org.uk` |
 | `MAIL_TOKEN` | 临时邮箱 API Key | 空 |
 
+> 数据库路径解析顺序：`DB_PATH` > `DATA_DIR/accounts.db` > 项目内 `../data/accounts.db`。父目录不存在时会自动 `mkdirSync(..., { recursive: true })`。
+
+> 健康检查 `/healthz` 实际执行 `SELECT 1 AS ok` 探活 SQLite，正常返回 200，异常返回 503。
+
 ### 前端在线配置
 
-访问 http://localhost:3000/dashboard → "设置" 标签页，可在线配置邮箱 API 地址和 Key，保存到 SQLite 数据库，无需重启服务。
+访问 http://localhost:3000/dashboard → 输入 `ADMIN_TOKEN` 登录 → "设置" 标签页，可在线配置邮箱 API 地址和 Key，保存到 SQLite 数据库，无需重启服务。
 
 ## ⚠️ 注意事项
 
@@ -233,11 +291,15 @@ stagewise-2api/
 - **额度缓存**：5 分钟 SQLite 缓存，避免频繁调用 Stagewise 用量 API
 - **自动注册**：依赖外部临时邮箱服务（GPTMail），请确保 API Key 有效且有足够配额
 - **Token 安全**：前端显示 token 时会自动脱敏，只显示前 4 位和后 4 位
+- **公网安全**：Zeabur 等公网部署必须设置 `ADMIN_TOKEN`；强烈建议设置 `PROXY_API_KEY`
 
 ## 🛠️ 常见问题
 
 **Q: 调用返回 401？**
-A: 检查账号池是否有有效 token，或 .env 中的 STAGEWISE_TOKEN 是否有效。
+A: 如果设置了 `PROXY_API_KEY`，客户端 API Key 必须填它；否则检查账号池或 `.env` 中的 `STAGEWISE_TOKEN` 是否有效。
+
+**Q: WebUI 提示管理接口未启用？**
+A: 环境变量里没有设置 `ADMIN_TOKEN`，设置后重启服务。
 
 **Q: 自动注册失败？**
 A: 检查前端"设置"页面中的 GPTMail API Key 是否有效且有配额。

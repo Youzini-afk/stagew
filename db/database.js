@@ -1,18 +1,46 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
+import { mkdirSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DB_PATH = join(__dirname, '..', 'data', 'accounts.db');
+/**
+ * 计算数据库文件路径，优先级：
+ *   1. DB_PATH 环境变量（直接使用，相对路径会基于 cwd 解析为绝对路径）
+ *   2. DATA_DIR 环境变量（在 DATA_DIR 下使用 accounts.db）
+ *   3. 默认：项目内 ../data/accounts.db
+ */
+function resolveDbPath() {
+  if (process.env.DB_PATH) {
+    return resolve(process.env.DB_PATH);
+  }
+  if (process.env.DATA_DIR) {
+    return resolve(join(process.env.DATA_DIR, 'accounts.db'));
+  }
+  return join(__dirname, '..', 'data', 'accounts.db');
+}
+
+const DB_PATH = resolveDbPath();
+
+/**
+ * 返回当前数据库文件绝对路径（供健康检查/调试展示，不包含敏感数据）。
+ */
+export function getDatabasePath() {
+  return DB_PATH;
+}
 
 let db;
 
 export function getDb() {
   if (!db) {
+    // 确保数据库所在目录存在（Zeabur Volume 挂载点可能为空目录）
+    mkdirSync(dirname(DB_PATH), { recursive: true });
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
+    db.pragma('busy_timeout = 5000');   // 写冲突时等待 5s，避免 SQLITE_BUSY
+    db.pragma('foreign_keys = ON');      // 启用外键约束
     initTables();
   }
   return db;

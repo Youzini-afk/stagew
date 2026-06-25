@@ -43,8 +43,11 @@ router.get('/mail', (req, res) => {
 router.post('/mail', (req, res) => {
   try {
     const { url, token } = req.body;
-    if (!url || !token) {
-      return res.status(400).json({ error: 'url 和 token 都是必需的' });
+    if (!url) {
+      return res.status(400).json({ error: 'url 是必需的' });
+    }
+    if (typeof token === 'string' && token.includes('****')) {
+      return res.status(400).json({ error: '请填写完整 token，或留空保持原配置' });
     }
     saveMailConfig(url, token);
     res.json({ success: true, message: '邮箱 API 配置已保存' });

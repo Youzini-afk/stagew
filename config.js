@@ -17,6 +17,15 @@ export const config = {
   // 默认 Bearer Token（可选，也可以在请求头带）
   defaultToken: process.env.STAGEWISE_TOKEN || '',
 
+  // 管理后台 Token：保护账号池、设置、自动注册等管理 API；WebUI 通过前端登录遮罩使用它
+  // 公网部署必须设置，否则管理接口一律返回 503
+  adminToken: process.env.ADMIN_TOKEN || '',
+
+  // 代理 API Key：保护账号池/.env token 免被公网滥用
+  // 设置后，OpenAI 客户端必须用此 key 才能消费账号池或 .env token
+  // 兼容别名 API_KEY；客户端可通过 Authorization: Bearer <KEY> 或 X-API-Key: <KEY> 传入
+  proxyApiKey: process.env.PROXY_API_KEY || process.env.API_KEY || '',
+
   // GPTMail 临时邮箱
   mailUrl: process.env.MAIL_URL || 'https://mail.chatgpt.org.uk',
   mailToken: process.env.MAIL_TOKEN || '',
