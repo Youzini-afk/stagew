@@ -48,7 +48,7 @@ export async function createMailbox(prefix = null, domain = null) {
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '创建邮箱失败');
-    return { email: data.data.email, usage: data.usage };
+    return { email: data.data.email, usage: data.usage, provider: 'gptmail' };
   }
 
   const res = await fetch(`${base}/api/generate-email`, {
@@ -57,7 +57,7 @@ export async function createMailbox(prefix = null, domain = null) {
   });
   const data = await res.json();
   if (!data.success) throw new Error(data.error || '创建邮箱失败');
-  return { email: data.data.email, usage: data.usage };
+  return { email: data.data.email, usage: data.usage, provider: 'gptmail' };
 }
 
 /**
@@ -90,9 +90,14 @@ export function clearDomainCache() {
 export async function getEmails(mailbox, limit = 20) {
   const base = getBaseUrl();
   const headers = getHeaders();
+  const emailAddress = typeof mailbox === 'string' ? mailbox : (mailbox?.email || mailbox?.address || '');
+
+  if (!emailAddress) {
+    throw new Error('GPTMail 读取邮件需要邮箱地址');
+  }
 
   const res = await fetch(
-    `${base}/api/emails?email=${encodeURIComponent(mailbox)}`,
+    `${base}/api/emails?email=${encodeURIComponent(emailAddress)}`,
     { headers }
   );
   const data = await res.json();

@@ -1,12 +1,12 @@
 import { sendOtp, verifyOtp } from './auth.js';
 import { addAccount } from './account-pool.js';
-import * as gptmail from './gptmail.js';
+import * as mailProvider from './mail-provider.js';
 
 /**
  * 自动注册 Stagewise 账号
  *
  * 流程：
- * 1. 通过 GPTMail 创建临时邮箱
+ * 1. 通过当前临时邮箱 Provider 创建临时邮箱
  * 2. 向 Stagewise 发送 OTP 验证码
  * 3. 轮询收件箱获取验证码
  * 4. 提交验证码完成登录，获取 token
@@ -20,12 +20,15 @@ export async function autoRegister(opts = {}) {
     onProgress = () => {},
   } = opts;
 
+  const providerName = mailProvider.getMailProviderName();
+  const providerLabel = mailProvider.getMailProviderLabel();
+
   // Step 1: 创建临时邮箱
-  onProgress('creating-mailbox', '正在创建临时邮箱 (GPTMail)...');
+  onProgress('creating-mailbox', `正在创建临时邮箱 (${providerLabel})...`);
   let mailbox;
   try {
     const rand = prefix || 'sw' + Math.random().toString(36).substring(2, 10);
-    mailbox = await gptmail.createMailbox(rand);
+    mailbox = await mailProvider.createMailbox(rand);
   } catch (err) {
     throw new Error(`创建邮箱失败: ${err.message}`);
   }
@@ -45,7 +48,7 @@ export async function autoRegister(opts = {}) {
   onProgress('waiting-code', '正在等待验证码邮件...');
   let code;
   try {
-    const result = await gptmail.waitForVerificationCode(email, {
+    const result = await mailProvider.waitForVerificationCode(mailbox, {
       maxWait,
       senderFilter: 'stagewise',
     });
@@ -67,11 +70,11 @@ export async function autoRegister(opts = {}) {
   // Step 5: 加入账号池
   if (addToPool) {
     onProgress('adding-pool', '正在加入账号池...');
-    const account = addAccount(email, token, '自动注册 (GPTMail)');
+    const account = addAccount(email, token, `自动注册 (${providerLabel})`);
     onProgress('done', '注册完成，已加入账号池');
-    return { success: true, email, token, account };
+    return { success: true, email, token, account, provider: providerName };
   }
 
   onProgress('done', '注册完成');
-  return { success: true, email, token };
+  return { success: true, email, token, provider: providerName };
 }

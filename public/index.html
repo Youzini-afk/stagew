@@ -238,6 +238,26 @@
     }
     .form-row { display: flex; gap: 16px; }
     .form-row .form-field { flex: 1; }
+    .helper-text {
+      font-size: 12px;
+      color: var(--md-on-surface-variant);
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+    .mail-provider-panel { margin-top: 8px; }
+    .advanced-mail-settings {
+      border: 1px solid var(--md-outline);
+      border-radius: var(--md-radius-sm);
+      padding: 12px 16px;
+      margin-bottom: 16px;
+    }
+    .advanced-mail-settings summary {
+      cursor: pointer;
+      color: var(--md-primary);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .advanced-mail-settings .advanced-inner { margin-top: 14px; }
 
     /* ─── Table ───────────────────────────────────────────── */
     .data-table { width: 100%; border-collapse: collapse; }
@@ -849,22 +869,92 @@
         <div class="card-header">
           <div class="card-title">
             <span class="material-symbols-rounded">mail</span>
-            GPTMail API 配置
+            临时邮箱服务配置
           </div>
         </div>
         <p style="font-size:14px;color:var(--md-on-surface-variant);margin-bottom:16px;">
-          配置用于自动注册的 GPTMail 临时邮箱服务
-          (<a href="https://mail.chatgpt.org.uk/zh/api" target="_blank" style="color:var(--md-primary);">API 文档</a>)
+          配置用于自动注册的临时邮箱服务。支持 GPTMail 与 CFMail Worker，API Key 只会脱敏返回。
         </p>
         <form id="mail-form">
           <div class="form-field">
-            <label>API 地址</label>
-            <input type="url" id="mail-url" placeholder="https://mail.chatgpt.org.uk" required>
+            <label>Provider</label>
+            <select id="mail-provider" onchange="toggleMailProviderFields()">
+              <option value="gptmail">GPTMail</option>
+              <option value="cfmail">CFMail</option>
+            </select>
           </div>
-          <div class="form-field">
-            <label>API Key</label>
-            <input type="text" id="mail-token" placeholder="输入 API Key (sk-...)" required>
+
+          <div id="gptmail-panel" class="mail-provider-panel">
+            <div class="form-field">
+              <label>GPTMail API 地址</label>
+              <input type="url" id="mail-url" placeholder="https://mail.chatgpt.org.uk">
+              <div class="helper-text">兼容环境变量 MAIL_URL。</div>
+            </div>
+            <div class="form-field">
+              <label>GPTMail API Key</label>
+              <input type="text" id="mail-token" placeholder="输入 API Key；留空保持原配置">
+              <div class="helper-text">兼容环境变量 MAIL_TOKEN；留空不会覆盖已保存 Key。</div>
+            </div>
           </div>
+
+          <div id="cfmail-panel" class="mail-provider-panel" style="display:none;">
+            <div class="form-field">
+              <label>CFMail API Base</label>
+              <input type="url" id="cfmail-api-base" placeholder="https://your-cfmail-worker.example.workers.dev">
+              <div class="helper-text">兼容环境变量 CFMAIL_API_BASE；请勿在仓库中写入真实地址。</div>
+            </div>
+            <div class="form-field">
+              <label>CFMail API Key</label>
+              <input type="text" id="cfmail-api-key" placeholder="输入 API Key；留空保持原配置">
+              <div class="helper-text">兼容环境变量 CFMAIL_API_KEY；留空不会覆盖已保存 Key。</div>
+            </div>
+            <div class="form-field">
+              <label>CFMail Domains（逗号分隔）</label>
+              <input type="text" id="cfmail-domains" placeholder="example.com,example.net">
+              <div class="helper-text">兼容环境变量 CFMAIL_DOMAINS；留空时会尝试从 Worker 根路径发现 allowed_domains。</div>
+            </div>
+
+            <details class="advanced-mail-settings">
+              <summary>高级字段（Header / Endpoint）</summary>
+              <div class="advanced-inner">
+                <div class="form-row">
+                  <div class="form-field">
+                    <label>管理员认证 Header</label>
+                    <input type="text" id="cfmail-admin-auth-header" placeholder="x-admin-auth">
+                  </div>
+                  <div class="form-field">
+                    <label>管理员认证 Scheme</label>
+                    <input type="text" id="cfmail-admin-auth-scheme" placeholder="raw">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-field">
+                    <label>邮箱认证 Header</label>
+                    <input type="text" id="cfmail-mailbox-auth-header" placeholder="Authorization">
+                  </div>
+                  <div class="form-field">
+                    <label>邮箱认证 Scheme</label>
+                    <input type="text" id="cfmail-mailbox-auth-scheme" placeholder="bearer">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-field">
+                    <label>创建邮箱 Endpoint</label>
+                    <input type="text" id="cfmail-create-endpoint" placeholder="/admin/new_address">
+                  </div>
+                  <div class="form-field">
+                    <label>读取邮件 Endpoint</label>
+                    <input type="text" id="cfmail-list-endpoint" placeholder="/api/mails">
+                  </div>
+                </div>
+                <div class="form-field">
+                  <label>健康检查 Endpoint</label>
+                  <input type="text" id="cfmail-health-endpoint" placeholder="/healthz">
+                </div>
+              </div>
+            </details>
+          </div>
+
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
             <button type="submit" class="btn btn-filled">
               <span class="material-symbols-rounded">save</span>
@@ -1436,8 +1526,12 @@
         const data = await res.json();
         const domains = data.domains || [];
         const provider = data.provider || 'gptmail';
+        const providerLabel = provider === 'cfmail' ? 'CFMail' : 'GPTMail';
 
-        // GPTMail doesn't use domainIndex, just show available domains
+        const logEl = document.getElementById('register-log');
+        if (logEl && logEl.textContent.includes('等待注册')) {
+          logEl.innerHTML = `<span style="color:#6c7086;">当前邮箱服务: ${esc(providerLabel)}${domains.length ? ' · 可用域名: ' + esc(domains.join(', ')) : ''}</span>`;
+        }
         console.log('Available domains:', domains, 'Provider:', provider);
       } catch (e) { console.error(e); }
     }
@@ -1625,38 +1719,85 @@
     }
 
     /* ─── Settings ──────────────────────────────────────── */
+    function toggleMailProviderFields() {
+      const provider = document.getElementById('mail-provider').value || 'gptmail';
+      document.getElementById('gptmail-panel').style.display = provider === 'gptmail' ? 'block' : 'none';
+      document.getElementById('cfmail-panel').style.display = provider === 'cfmail' ? 'block' : 'none';
+    }
+
     async function loadMailConfig() {
       try {
         const res = await apiFetch('/v1/settings/mail');
         const data = await res.json();
-        document.getElementById('mail-url').value = data.url || '';
+        const provider = data.provider || 'gptmail';
+        const gptmail = data.gptmail || data || {};
+        const cfmail = data.cfmail || {};
+
+        document.getElementById('mail-provider').value = provider;
+        document.getElementById('mail-url').value = gptmail.url || data.url || '';
         document.getElementById('mail-token').value = '';
-        document.getElementById('mail-token').placeholder = data.tokenLength ? '已保存 (留空保持不变)' : '输入 API Key';
+        document.getElementById('mail-token').placeholder = gptmail.tokenLength || data.tokenLength ? '已保存 (留空保持不变)' : '输入 API Key';
+
+        document.getElementById('cfmail-api-base').value = cfmail.apiBase || '';
+        document.getElementById('cfmail-api-key').value = '';
+        document.getElementById('cfmail-api-key').placeholder = cfmail.apiKeyLength ? '已保存 (留空保持不变)' : '输入 API Key';
+        document.getElementById('cfmail-domains').value = Array.isArray(cfmail.domains) ? cfmail.domains.join(',') : (cfmail.domains || '');
+        document.getElementById('cfmail-admin-auth-header').value = cfmail.adminAuthHeader || 'x-admin-auth';
+        document.getElementById('cfmail-admin-auth-scheme').value = cfmail.adminAuthScheme || 'raw';
+        document.getElementById('cfmail-mailbox-auth-header').value = cfmail.mailboxAuthHeader || 'Authorization';
+        document.getElementById('cfmail-mailbox-auth-scheme').value = cfmail.mailboxAuthScheme || 'bearer';
+        document.getElementById('cfmail-create-endpoint').value = cfmail.createEndpoint || '/admin/new_address';
+        document.getElementById('cfmail-list-endpoint').value = cfmail.listEndpoint || '/api/mails';
+        document.getElementById('cfmail-health-endpoint').value = cfmail.healthEndpoint || '/healthz';
+        toggleMailProviderFields();
       } catch (e) {
         showSnackbar('加载配置失败: ' + e.message, 'error');
       }
     }
 
     async function saveMailConfig() {
+      const provider = document.getElementById('mail-provider').value || 'gptmail';
       const url = document.getElementById('mail-url').value.trim();
       const token = document.getElementById('mail-token').value.trim();
 
-      if (!url) {
-        showSnackbar('请输入 API 地址', 'error');
+      const cfmail = {
+        apiBase: document.getElementById('cfmail-api-base').value.trim(),
+        apiKey: document.getElementById('cfmail-api-key').value.trim(),
+        domains: document.getElementById('cfmail-domains').value.trim(),
+        adminAuthHeader: document.getElementById('cfmail-admin-auth-header').value.trim() || 'x-admin-auth',
+        adminAuthScheme: document.getElementById('cfmail-admin-auth-scheme').value.trim() || 'raw',
+        mailboxAuthHeader: document.getElementById('cfmail-mailbox-auth-header').value.trim() || 'Authorization',
+        mailboxAuthScheme: document.getElementById('cfmail-mailbox-auth-scheme').value.trim() || 'bearer',
+        createEndpoint: document.getElementById('cfmail-create-endpoint').value.trim() || '/admin/new_address',
+        listEndpoint: document.getElementById('cfmail-list-endpoint').value.trim() || '/api/mails',
+        healthEndpoint: document.getElementById('cfmail-health-endpoint').value.trim() || '/healthz',
+      };
+
+      if (provider === 'gptmail' && !url) {
+        showSnackbar('请输入 GPTMail API 地址', 'error');
+        return;
+      }
+      if (provider === 'cfmail' && !cfmail.apiBase) {
+        showSnackbar('请输入 CFMail API Base', 'error');
         return;
       }
 
       try {
+        const payload = { provider };
+        if (provider === 'gptmail') payload.gptmail = { url, token };
+        if (provider === 'cfmail') payload.cfmail = cfmail;
+
         const res = await apiFetch('/v1/settings/mail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, token })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
 
         if (res.ok) {
           showSnackbar('配置已保存', 'success');
           loadMailConfig(); // 重新加载以显示脱敏的 token
+          loadDomains();
         } else {
           showSnackbar('保存失败: ' + data.error, 'error');
         }
@@ -1669,11 +1810,12 @@
       try {
         const res = await apiFetch('/v1/register/domains');
         const data = await res.json();
+        const provider = data.provider === 'cfmail' ? 'CFMail' : 'GPTMail';
 
         if (data.domains && data.domains.length > 0) {
-          showSnackbar(`连接成功，可用域名: ${data.domains.join(', ')}`, 'success');
+          showSnackbar(`${provider} 连接成功，可用域名: ${data.domains.join(', ')}`, 'success');
         } else {
-          showSnackbar('连接成功，但没有可用域名', 'warning');
+          showSnackbar(`${provider} 连接成功，但没有可用域名`, 'warning');
         }
       } catch (e) {
         showSnackbar('连接失败: ' + e.message, 'error');

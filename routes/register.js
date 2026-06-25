@@ -1,6 +1,6 @@
 import express from 'express';
 import { autoRegister } from '../services/auto-register.js';
-import * as gptmail from '../services/gptmail.js';
+import * as mailProvider from '../services/mail-provider.js';
 
 const router = express.Router();
 
@@ -46,7 +46,7 @@ router.post('/batch', async (req, res) => {
         maxWait: 60000,
         onProgress: (step, message) => { logs.push({ step, message }); },
       });
-      results.push({ index: i, success: true, email: result.email, logs });
+      results.push({ index: i, success: true, email: result.email, provider: result.provider, logs });
     } catch (err) {
       results.push({ index: i, success: false, error: err.message, logs });
     }
@@ -67,8 +67,12 @@ router.post('/batch', async (req, res) => {
  */
 router.get('/domains', async (req, res) => {
   try {
-    const domains = await gptmail.getDomains();
-    res.json({ domains });
+    const provider = mailProvider.getMailProviderName();
+    const health = await mailProvider.checkHealth();
+    const domains = health.domains && health.domains.length > 0
+      ? health.domains
+      : await mailProvider.getDomains();
+    res.json({ provider, domains });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
